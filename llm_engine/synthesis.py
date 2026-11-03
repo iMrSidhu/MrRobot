@@ -71,7 +71,7 @@ async def _fit(items: list[str], label: str, alloc: int, *,
         part = await generate(SUMMARY_PROMPT + "\n\n".join(group),
                               model=model, client=client)
         summaries.append(part.strip())
-    logger.info("slot %s compressed: %d -> %d chars via %d dossier passes (%d chars dropped)",
+    logger.info("slot %s compressed: %d -> %d chars via %d dossier passes (%d groups dropped)",
                 label, len(text), sum(len(s) for s in summaries), len(summaries), truncated)
     merged = "\n".join(summaries)
     if truncated:
@@ -83,16 +83,15 @@ async def _fit(items: list[str], label: str, alloc: int, *,
 
 async def run_synthesis(repo: ProcessedRepo, *, model: str | None = None,
                         client: httpx.AsyncClient | None = None) -> SynthesisResult:
-    """Analyze one processed repository with Model A (blocking on LLM lock)."""
+    """Analyze one processed repository with Model A (blocking on LLM lock).
+    Temporary config (prompts/synthesis.md): README is the only input — the
+    tree and entry-point slots stay packed in ProcessedRepo but are not sent,
+    cutting two more dossier chains and the claims-vs-reality verdicts."""
     model = model or settings.synthesis_model
     # alloc: template overhead ignored — chars/4 is an estimate anyway (shortcut)
-    alloc = max(_budget_chars() // 3, 500)
-    tree = await _fit([repo.tree_text], "tree", alloc, model=model, client=client)
-    readme = await _fit(repo.readme_chunks, "readme", alloc, model=model, client=client)
-    code = await _fit(repo.code_chunks, "code", alloc, model=model, client=client)
+    readme = await _fit(repo.readme_chunks, "readme", max(_budget_chars(), 500),
+                        model=model, client=client)
     prompt = (TEMPLATE_PATH.read_text(encoding="utf-8")
               .replace("{name}", repo.name)
-              .replace("{tree}", tree or "(none)")
-              .replace("{readme}", readme or "(none)")
-              .replace("{code}", code or "(none)"))
+              .replace("{readme}", readme or "(none)"))
     return await generate_json(model, prompt, SynthesisResult, client=client)

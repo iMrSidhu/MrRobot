@@ -7,7 +7,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from processor.chunker import (
+    README_DIGEST_MAX_CHARS,
     chunk_text,
+    digest_markdown,
     pack_items,
     process_repo,
     security_candidates,
@@ -145,3 +147,45 @@ def test_processed_repo_fields(repo):
     assert result.readme_chunks  # README present
     assert "".join(result.readme_chunks).replace("=== README.md ===\n", "") \
         .count("Autonomous") >= 10  # most of the README survived chunking
+
+
+# --- deterministic README digest (no LLM) --------------------------------------
+def test_digest_keeps_structure_drops_noise():
+    readme = "\n".join([
+        "[![build](https://img.shields.io/ci.svg)](https://ci)",
+        '<p align="center"><img src="logo.png"></p>',
+        "# Colibri",
+        "Tagline sentence under the heading.",
+        "A long prose paragraph about the vision that should be dropped.",
+        "## Quickstart",
+        "Run `colibri run`.",
+        "More prose nobody needs at this stage.",
+        "- Fast: benchmarked startup",
+        "- Safe: sandboxed tools",
+        "```bash",
+        "pip install colibri",
+        "```",
+    ])
+    digest = digest_markdown(readme)
+    assert "# Colibri" in digest and "## Quickstart" in digest
+    assert "Tagline sentence" in digest and "Run `colibri run`." in digest
+    assert "- Fast: benchmarked startup" in digest and "pip install colibri" in digest
+    assert "shields.io" not in digest and "<p align" not in digest
+    assert "vision that should" not in digest and "More prose" not in digest
+
+
+def test_digest_caps_long_code_fences():
+    body = "\n".join(f"echo line {i}" for i in range(25))
+    digest = digest_markdown(f"# T\n\n```sh\n{body}\n```\n")
+    assert "echo line 0" in digest and "echo line 9" in digest
+    assert "echo line 10" not in digest
+    assert "(15 fence lines dropped)" in digest
+
+
+def test_digest_fallback_and_cap():
+    prose = "word " * 40_000  # no markdown structure at all
+    assert digest_markdown(prose) == prose[:README_DIGEST_MAX_CHARS]
+    big = "\n".join(f"# H{i}\nlead {i}" for i in range(3000))
+    cut = digest_markdown(big)
+    assert cut.endswith("(digest truncated)")
+    assert len(cut) <= README_DIGEST_MAX_CHARS + 30

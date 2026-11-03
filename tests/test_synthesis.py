@@ -50,8 +50,10 @@ def test_small_repo_is_one_llm_call_and_validates():
     assert isinstance(result, SynthesisResult)
     assert result == SynthesisResult(**RESULT)
     assert len(prompts) == 1
-    assert "Directory tree" in prompts[0] and "a/b" in prompts[0]
-    assert "main.py" in prompts[0]
+    assert "## README excerpts" in prompts[0] and "a/b" in prompts[0]
+    assert "# tiny" in prompts[0]                    # README sent
+    assert "Directory tree" not in prompts[0]        # temp config: README-only input
+    assert "main.py" not in prompts[0] and "def main()" not in prompts[0]
     assert models == [synthesis.settings.synthesis_model]
 
 

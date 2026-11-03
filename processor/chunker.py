@@ -33,6 +33,7 @@ SECURITY_PATTERNS = {
         r"\b(?:sk|ghp|gho|github_pat|AKIA|xox[bap])[\-_][A-Za-z0-9\-_.]{8,}\b"),
 }
 TRUNCATE_MARK = "\n... (tree truncated)"
+README_DIGEST_MAX_CHARS = 12_000  # cap for the deterministic README condenser
 
 
 def chunk_text(text: str, max_chars: int) -> list[str]:
@@ -158,6 +159,51 @@ def security_candidates(root: Path, kept: list[KeptFile]) -> list[str]:
     return [path for _, path in sorted(scored)]
 
 
+def digest_markdown(text: str) -> str:
+    """Deterministic README condenser — no LLM (PROGRESS: slow decode dominates
+    cost; reading less means Model A writes less, often skipping dossier
+    passes entirely). Keeps headings, the lead line under each, list bullets
+    and short code fences; drops badges, HTML and prose paragraphs. If nothing
+    survives (unstructured README), falls back to the raw head — never empty.
+    """
+    kept: list[str] = []
+    after_heading = False
+    in_fence = False
+    fence_len = 0
+    for raw in text.splitlines():
+        s = raw.strip()
+        if s.startswith("```"):
+            if in_fence:
+                kept.append("```")
+                if fence_len > 10:
+                    kept.append(f"({fence_len - 10} fence lines dropped)")
+            else:
+                kept.append("```")
+            in_fence = not in_fence
+            fence_len = 0
+            continue
+        if in_fence:
+            fence_len += 1
+            if fence_len <= 10:
+                kept.append(s)
+            continue
+        if not s or s.startswith(("<", "[![", "![")):
+            continue
+        if s.startswith("#"):
+            kept.append(s)
+            after_heading = True
+        elif after_heading:
+            kept.append(s)
+            after_heading = False
+        elif s[:2] in ("- ", "* "):
+            kept.append(s)
+    digest = "\n".join(kept)
+    if len(digest) > README_DIGEST_MAX_CHARS:
+        cut = digest.rfind("\n", 0, README_DIGEST_MAX_CHARS)
+        digest = digest[:cut if cut > 0 else README_DIGEST_MAX_CHARS] + "\n(digest truncated)"
+    return digest or text[:README_DIGEST_MAX_CHARS]
+
+
 def process_repo(repo_id: int, name: str, root: str | Path,
                  budget_tokens: int | None = None) -> ProcessedRepo:
     """Turn a filtered clone into the ProcessedRepo contract for both LLMs."""
@@ -167,7 +213,7 @@ def process_repo(repo_id: int, name: str, root: str | Path,
     kept = filter_repo(root)
 
     readmes = [f"=== {_rel(root, k.path)} ===\n"
-               f"{k.path.read_text(encoding='utf-8', errors='replace')}"
+               f"{digest_markdown(k.path.read_text(encoding='utf-8', errors='replace'))}"
                for k in kept if k.language == "Markdown"]
     code_items = [f"=== {_rel(root, k.path)} ===\n{summarize_source(k.path)}"
                   for k in find_entry_points(kept)]
