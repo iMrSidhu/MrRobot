@@ -65,21 +65,25 @@ def wire(monkeypatch, fail_synth=(), fail_security=()):
 
 
 # --- success path -------------------------------------------------------------
-def test_success_sets_analyzed_with_both_results(tmp_path, monkeypatch):
+def test_success_sets_done_with_vault_report(tmp_path, monkeypatch):
     cache = tmp_path / "cache"
+    vault = tmp_path / "vault"
     db_path = seed(tmp_path, cache, [(1, "acme/rover", 1500)])
     calls = wire(monkeypatch)
-    assert service.run_once(db_path=db_path, cache_dir=cache) == 1
+    assert service.run_once(db_path=db_path, cache_dir=cache, vault_dir=vault) == 1
 
     conn = db.connect(db_path)
     repo = db.get_repo(conn, 1)
-    assert repo["status"] == "ANALYZED" and repo["error"] is None
+    assert repo["status"] == "DONE" and repo["error"] is None
     assert SynthesisResult.model_validate_json(
         Path(repo["synthesis_path"]).read_text(encoding="utf-8")) == SYNTH
-    assert SecurityResult.model_validate_json(
-        Path(repo["security_report_path"]).read_text(encoding="utf-8")) == SEC
+    report_file = Path(repo["security_report_path"])
+    assert report_file == vault / "acme__rover.md"
+    md = report_file.read_text(encoding="utf-8")
+    assert md.startswith("# acme/rover") and "## Vulnerability matrix" in md
+    assert service._cache_path("acme/rover", service.SECURITY_SUFFIX, cache).exists()
     events = [e["type"] for e in db.list_events_since(conn, 0) if e["repo_id"] == 1]
-    assert events == ["ANALYSIS_START", "SYNTHESIS_DONE", "SECURITY_DONE"]
+    assert events == ["ANALYSIS_START", "SYNTHESIS_DONE", "SECURITY_DONE", "REPORTED"]
     conn.close()
 
     assert calls["clone"] == ["acme/rover"]
@@ -129,12 +133,33 @@ def test_failure_does_not_stop_the_loop(tmp_path, monkeypatch):
     # bad repo has MORE stars so claim_next (stars-first) picks it first
     db_path = seed(tmp_path, cache, [(1, "bad/repo", 9999), (2, "good/repo", 1500)])
     wire(monkeypatch, fail_synth=("bad/repo",))
-    assert service.run_once(db_path=db_path, cache_dir=cache) == 1
+    assert service.run_once(db_path=db_path, cache_dir=cache,
+                             vault_dir=tmp_path / "vault") == 1
 
     conn = db.connect(db_path)
     assert db.get_repo(conn, 1)["status"] == "FAILED_AUDIT"
-    assert db.get_repo(conn, 2)["status"] == "ANALYZED"
+    assert db.get_repo(conn, 2)["status"] == "DONE"
     conn.close()
+
+
+def test_report_write_failure_is_audited(tmp_path, monkeypatch):
+    cache = tmp_path / "cache"
+    db_path = seed(tmp_path, cache, [(1, "acme/rover", 1500)])
+    wire(monkeypatch)
+
+    def boom(repo, synthesis, security, *, vault_dir=None):
+        raise OSError("vault disk gone")
+
+    monkeypatch.setattr(service, "write_report", boom)
+    assert service.run_once(db_path=db_path, cache_dir=cache,
+                             vault_dir=tmp_path / "vault") == 0
+    conn = db.connect(db_path)
+    repo = db.get_repo(conn, 1)
+    assert repo["status"] == "FAILED_AUDIT" and "OSError" in repo["error"]
+    types = [e["type"] for e in db.list_events_since(conn, 0) if e["repo_id"] == 1]
+    assert types == ["ANALYSIS_START", "SYNTHESIS_DONE", "SECURITY_DONE", "FAILED_AUDIT"]
+    conn.close()
+    assert not (cache / "acme_rover").exists()  # clone cleaned even on report failure
 
 
 def test_missing_processed_json_is_audited(tmp_path, monkeypatch):

@@ -3,7 +3,8 @@
 Claims PROCESSED -> ANALYZING, re-reads the ProcessedRepo JSON the processor
 left in the cache dir, runs Model A synthesis then re-clones the tree (the
 processor wipes it at PROCESSED) for Model B's security validation, stores
-both results as JSON, marks ANALYZED and writes an event at each stage.
+both results as JSON, writes the Markdown dossier into the vault (report.py),
+marks DONE and writes an event at each stage.
 Any failure -> FAILED_AUDIT + error + event, loop continues (principle 2).
 Synthesis and security run sequentially in ONE process, so the single-model
 6GB VRAM lock (principle 3) holds without cross-process coordination.
@@ -12,6 +13,7 @@ import asyncio
 import time
 from pathlib import Path
 
+from llm_engine.report import write_report
 from llm_engine.security import run_security
 from llm_engine.synthesis import run_synthesis
 # shortcut: cross-service import against protocol rule c - reuse the hardened
@@ -36,7 +38,7 @@ def _cache_path(name: str, suffix: str, cache_dir: Path | str | None) -> Path:
     return root / (sanitize_dir_name(name) + suffix)
 
 
-async def _analyze_one(conn, repo: dict, cache_dir) -> bool:
+async def _analyze_one(conn, repo: dict, cache_dir, vault_dir) -> bool:
     """Analyze one claimed repo end to end; returns True on success. Never raises."""
     repo_id, name, url = repo["id"], repo["name"], repo["url"]
     dest = None
@@ -61,7 +63,11 @@ async def _analyze_one(conn, repo: dict, cache_dir) -> bool:
 
         db.set_status(conn, repo_id, "ANALYZED",
                       synthesis_path=str(synth_out), security_report_path=str(sec_out))
-        logger.info(f"{name} -> ANALYZED ({len(security.findings)} findings)")
+        report_path = write_report(repo, synthesis, security, vault_dir=vault_dir)
+        db.set_status(conn, repo_id, "DONE", synthesis_path=str(synth_out),
+                      security_report_path=str(report_path))
+        db.add_event(conn, repo_id, "REPORTED", f"{name}: report at {report_path}")
+        logger.info(f"{name} -> DONE ({len(security.findings)} findings, {report_path.name})")
         return True
     except Exception as exc:
         try:
@@ -77,7 +83,8 @@ async def _analyze_one(conn, repo: dict, cache_dir) -> bool:
 
 
 def run_once(db_path: Path | str | None = None,
-             cache_dir: Path | str | None = None) -> int:
+             cache_dir: Path | str | None = None,
+             vault_dir: Path | str | None = None) -> int:
     """Drain everything currently PROCESSED; returns the number analyzed OK."""
     conn = db.connect(Path(db_path or settings.db_path))
     db.init_db(conn)
@@ -89,7 +96,7 @@ def run_once(db_path: Path | str | None = None,
             repo = db.claim_next(conn, "PROCESSED", "ANALYZING")
             if repo is None:
                 break
-            analyzed += await _analyze_one(conn, repo, cache_dir)
+            analyzed += await _analyze_one(conn, repo, cache_dir, vault_dir)
 
     asyncio.run(_drain())
     conn.close()
@@ -97,8 +104,9 @@ def run_once(db_path: Path | str | None = None,
 
 
 def run_forever(db_path: Path | str | None = None,
-                cache_dir: Path | str | None = None) -> None:
+                cache_dir: Path | str | None = None,
+                vault_dir: Path | str | None = None) -> None:
     """Worker loop: drain backlogs immediately, idle-poll otherwise."""
     while True:
-        if run_once(db_path, cache_dir) == 0:
+        if run_once(db_path, cache_dir, vault_dir) == 0:
             time.sleep(settings.poll_interval_sec)
