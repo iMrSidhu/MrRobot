@@ -48,7 +48,7 @@ def test_query_and_token_headers():
 
     search(("harness",), min_stars=1000, handler=handler, token="ghp_test")
     q = seen[0].url.params
-    assert q["q"] == "harness stars:>1000" and q["sort"] == "stars" and q["per_page"] == "100"
+    assert q["q"] == "harness stars:>=1000" and q["sort"] == "stars" and q["per_page"] == "100"
     assert seen[0].headers["authorization"] == "token ghp_test"
 
 

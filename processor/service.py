@@ -58,6 +58,7 @@ def run_once(db_path: Path | str | None = None,
     """Drain everything currently QUEUED; returns the number processed OK."""
     conn = db.connect(Path(db_path or settings.db_path))
     db.init_db(conn)
+    db.reclaim_stale(conn, "CLONING", "QUEUED")  # crashed-worker recovery
     processed = 0
     while True:
         repo = db.claim_next(conn, "QUEUED", "CLONING")

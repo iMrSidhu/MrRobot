@@ -1,6 +1,6 @@
 """GitHub REST search client for the ingestion service (DESIGN.md §5 Step 2.1).
 
-Async `'<keyword> stars:>N'` searches with pagination and an optional token.
+Async `'<keyword> stars:>=N'` searches with pagination and an optional token.
 When GitHub throttles us (403/429 or an exhausted primary rate limit) we raise
 RateLimited(wait_seconds) so the caller knows when to retry.
 """
@@ -65,7 +65,11 @@ async def search_repositories(
     per_page: int = 100,
     client: httpx.AsyncClient | None = None,
 ) -> list[RepoCandidate]:
-    """Search each `'<keyword> stars:>N'`, highest stars first; de-duplicated across keywords."""
+    """Search each `'<keyword> stars:>=N'`, highest stars first; de-duplicated across keywords.
+
+    `keyword` is passed through raw, so GitHub qualifiers are allowed — e.g.
+    `"harness in:name"` matches only repo titles (search is case-insensitive).
+    """
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -82,7 +86,7 @@ async def search_repositories(
     found: dict[str, RepoCandidate] = {}  # keyed by full_name -> cross-keyword dedupe
     try:
         for keyword in keywords:
-            query = f"{keyword} stars:>{min_stars}"
+            query = f"{keyword} stars:>={min_stars}"
             for page in range(1, MAX_PAGES + 1):
                 resp = await client.get(
                     "/search/repositories",

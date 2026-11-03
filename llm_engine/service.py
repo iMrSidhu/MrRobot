@@ -91,6 +91,10 @@ def run_once(db_path: Path | str | None = None,
     against a fake Ollama transport)."""
     conn = db.connect(Path(db_path or settings.db_path))
     db.init_db(conn)
+    # crashed-worker recovery (shared/db.reclaim_stale): rows a killed worker
+    # abandoned mid-run requeue here; artifacts are idempotent so a full rerun is safe
+    db.reclaim_stale(conn, "ANALYZING", "PROCESSED")
+    db.reclaim_stale(conn, "ANALYZED", "PROCESSED")
     analyzed = 0
 
     async def _drain() -> None:

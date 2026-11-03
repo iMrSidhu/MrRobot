@@ -83,6 +83,31 @@ def claim_next(conn, from_status: str, to_status: str):
     return dict(row) if row else None
 
 
+def reclaim_stale(conn, from_status: str, to_status: str, older_than_sec: int = 300) -> int:
+    """Crashed-worker recovery: rows that entered `from_status` more than
+    `older_than_sec` ago but never left it are handed back to `to_status` so the
+    next claim re-runs them (every stage is idempotent). Call at the START of a
+    drain pass only: while a row is in flight its worker is busy draining and
+    cannot reclaim, so a slow-but-alive run (model calls are uncapped) is never
+    stolen. 300s covers supervisor restart jitter.
+    shortcut: assumes one worker process per service (VRAM lock already does);
+    add a per-worker claim token to the row before supporting runners."""
+    _check_status(from_status)
+    _check_status(to_status)
+    rows = conn.execute(
+        "UPDATE repositories"
+        " SET status = ?, timestamp = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+        " WHERE status = ? AND timestamp < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)"
+        " RETURNING id, name",
+        (to_status, from_status, f"-{older_than_sec} seconds"),
+    ).fetchall()
+    for r in rows:
+        add_event(conn, r["id"], "RECLAIMED",
+                  f"{r['name']}: worker died in {from_status}, requeued to {to_status}")
+    conn.commit()
+    return len(rows)
+
+
 def set_status(conn, repo_id: int, status: str, *, error=None, synthesis_path=None, security_report_path=None) -> None:
     """Update status; optional fields are merged in (None keeps the previous value)."""
     _check_status(status)

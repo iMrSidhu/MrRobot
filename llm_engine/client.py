@@ -3,9 +3,9 @@
 One process-wide ``asyncio.Semaphore(1)`` guarantees a single model call at a
 time, so Model A (synthesis) and Model B (security) can never both load into
 6GB VRAM. Talks plain HTTP to /api/generate like scripts/check_ollama.py does
-(the `ollama` pip package is not needed). Transient failures are retried once;
-persistent timeouts surface as LLMTimeout. generate_json() is the pydantic-
-validated front door used by the workers.
+(the `ollama` pip package is not needed). Transient
+failures are retried once; answer time is uncapped (REQUEST_TIMEOUT).
+generate_json() is the pydantic-validated front door used by the workers.
 """
 import asyncio
 import json
@@ -24,17 +24,18 @@ logger = get_logger("llm_engine")
 _MODEL_LOCK = asyncio.Semaphore(1)
 
 # Hardware calibration (first real run): 4.6 tok/s decode once the 9B spills
-# past 6GB VRAM; uncapped generations blew the 600s timeout. Cap every call.
+# past 6GB VRAM. Cap output LENGTH only (runaway generations) — answer TIME is
+# deliberately uncapped, see REQUEST_TIMEOUT.
 MAX_TOKENS_PER_CALL = 1500
+
+# User decision 2026-11: let models take as long as they need — read/write/pool
+# timeouts are None; only the TCP connect is bounded so a dead Ollama fails fast.
+REQUEST_TIMEOUT = httpx.Timeout(None, connect=30.0)
 
 FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 
 T = TypeVar("T", bound=BaseModel)
-
-
-class LLMTimeout(RuntimeError):
-    """Ollama did not answer within LLM_TIMEOUT_SEC (after the single retry)."""
 
 
 def _schema_reminder(schema: Type[BaseModel], strict: bool) -> str:
@@ -67,7 +68,7 @@ async def generate(prompt: str, *, model: str | None = None,
     model = model or settings.synthesis_model
     owns_client = client is None
     if owns_client:
-        client = httpx.AsyncClient(timeout=settings.llm_timeout_sec)
+        client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
     try:
         async with _MODEL_LOCK:
             last_exc: Exception | None = None
@@ -77,16 +78,13 @@ async def generate(prompt: str, *, model: str | None = None,
                         f"{settings.ollama_host.rstrip('/')}/api/generate",
                         json={"model": model, "prompt": prompt, "stream": False,
                               "options": {"num_predict": max_tokens}},
-                        timeout=settings.llm_timeout_sec,
+                        timeout=REQUEST_TIMEOUT,
                     )
                     resp.raise_for_status()
                     return resp.json()["response"]
                 except (httpx.HTTPError, OSError, asyncio.TimeoutError) as exc:
                     last_exc = exc
                     logger.warning("ollama call failed (attempt %d): %r", attempt + 1, exc)
-            if isinstance(last_exc, httpx.TimeoutException):
-                raise LLMTimeout(f"{model}: no answer within "
-                                 f"{settings.llm_timeout_sec}s (2 attempts)") from last_exc
             raise last_exc
     finally:
         if owns_client:

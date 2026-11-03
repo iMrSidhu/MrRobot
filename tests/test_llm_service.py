@@ -4,8 +4,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import httpx
+
 from llm_engine import __main__ as llm_main
-from llm_engine.client import LLMTimeout
 from llm_engine import service
 from shared import db
 from shared.models import Finding, ProcessedRepo, SecurityResult, SynthesisResult
@@ -42,7 +43,7 @@ def wire(monkeypatch, fail_synth=(), fail_security=()):
     async def fake_synth(repo, **kw):
         calls["synth"].append(repo.name)
         if repo.name in fail_synth:
-            raise LLMTimeout(f"{repo.name}: no answer within 120s (2 attempts)")
+            raise httpx.ReadTimeout(f"{repo.name}: no answer")
         return SYNTH
 
     async def fake_security(repo, root, **kw):
@@ -91,8 +92,8 @@ def test_success_sets_done_with_vault_report(tmp_path, monkeypatch):
     assert not (cache / "acme_rover").exists()  # and cleaned up again
 
 
-# --- timeout path -------------------------------------------------------------
-def test_synthesis_timeout_fails_repo_without_cloning(tmp_path, monkeypatch):
+# --- model failure path ---------------------------------------------------------
+def test_synthesis_model_failure_fails_repo_without_cloning(tmp_path, monkeypatch):
     cache = tmp_path / "cache"
     db_path = seed(tmp_path, cache, [(1, "slow/repo", 1500)])
     calls = wire(monkeypatch, fail_synth=("slow/repo",))
@@ -101,7 +102,7 @@ def test_synthesis_timeout_fails_repo_without_cloning(tmp_path, monkeypatch):
     conn = db.connect(db_path)
     repo = db.get_repo(conn, 1)
     assert repo["status"] == "FAILED_AUDIT"
-    assert "LLMTimeout" in repo["error"] and "no answer" in repo["error"]
+    assert "ReadTimeout" in repo["error"] and "no answer" in repo["error"]
     types = [e["type"] for e in db.list_events_since(conn, 0) if e["repo_id"] == 1]
     assert types == ["ANALYSIS_START", "FAILED_AUDIT"]
     conn.close()
@@ -179,6 +180,31 @@ def test_empty_queue_returns_zero(tmp_path, monkeypatch):
     db_path = seed(tmp_path, cache, [])
     wire(monkeypatch)
     assert service.run_once(db_path=db_path, cache_dir=cache) == 0
+
+
+# --- crashed-worker recovery ----------------------------------------------------
+def test_stale_analyzing_row_is_reclaimed_and_rerun(tmp_path, monkeypatch):
+    """Simulates a worker killed mid-analysis: the row sits in ANALYZING with an
+    old timestamp; the next drain must requeue it and take it to DONE."""
+    cache = tmp_path / "cache"
+    vault = tmp_path / "vault"
+    db_path = seed(tmp_path, cache, [(1, "dead/repo", 1500)])
+    conn = db.connect(db_path)
+    assert db.claim_next(conn, "PROCESSED", "ANALYZING") is not None
+    conn.execute("UPDATE repositories"
+                 " SET timestamp = strftime('%Y-%m-%dT%H:%M:%fZ','now','-3600 seconds') WHERE id = 1")
+    conn.commit()
+    conn.close()
+
+    calls = wire(monkeypatch)
+    assert service.run_once(db_path=db_path, cache_dir=cache, vault_dir=vault) == 1
+
+    conn = db.connect(db_path)
+    assert db.get_repo(conn, 1)["status"] == "DONE"
+    types = [e["type"] for e in db.list_events_since(conn, 0) if e["repo_id"] == 1]
+    assert types == ["RECLAIMED", "ANALYSIS_START", "SYNTHESIS_DONE", "SECURITY_DONE", "REPORTED"]
+    conn.close()
+    assert calls["synth"] == ["dead/repo"]  # actually re-ran, not just marked
 
 
 def test_main_once_flag(monkeypatch):

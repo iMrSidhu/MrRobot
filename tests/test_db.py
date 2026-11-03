@@ -108,3 +108,23 @@ def test_set_status_fields_and_validation(tmp_path):
         db.set_status(conn, 1, "NOPE")
     with pytest.raises(ValueError):
         db.claim_next(conn, "BOGUS", "CLONING")
+
+
+def test_reclaim_stale_hands_back_only_abandoned_rows(tmp_path):
+    conn = _db(tmp_path)
+    db.add_repo_if_new(conn, 1, "dead/x", "u", 10)
+    db.add_repo_if_new(conn, 2, "busy/y", "u", 10)
+    db.claim_next(conn, "QUEUED", "CLONING")
+    db.claim_next(conn, "QUEUED", "CLONING")
+    conn.execute("UPDATE repositories"
+                 " SET timestamp = strftime('%Y-%m-%dT%H:%M:%fZ','now','-3600 seconds') WHERE id = 1")
+    conn.commit()
+
+    assert db.reclaim_stale(conn, "CLONING", "QUEUED") == 1
+    assert db.get_repo(conn, 1)["status"] == "QUEUED"
+    assert db.get_repo(conn, 2)["status"] == "CLONING"  # fresh (alive) row untouched
+    ev = db.list_events_since(conn, 0)[-1]
+    assert ev["type"] == "RECLAIMED" and ev["repo_id"] == 1
+    assert db.claim_next(conn, "QUEUED", "CLONING")["id"] == 1  # re-runnable
+    with pytest.raises(ValueError):
+        db.reclaim_stale(conn, "BOGUS", "QUEUED")

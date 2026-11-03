@@ -11,7 +11,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from llm_engine import client as llm
-from llm_engine.client import LLMTimeout, clean_json_text, generate, generate_json
+from llm_engine.client import clean_json_text, generate, generate_json
 
 
 class Answer(BaseModel):
@@ -48,7 +48,9 @@ def test_transient_error_retried_once():
     assert len(calls) == 2
 
 
-def test_timeout_raises_llmtimeout_after_two_attempts():
+def test_read_timeout_retried_once_then_raises():
+    # with answer time uncapped, a ReadTimeout can only come from outside
+    # (proxy cut etc.); the retry-then-propagate path must still work.
     calls = []
 
     def handler(request):
@@ -59,9 +61,23 @@ def test_timeout_raises_llmtimeout_after_two_attempts():
         async with handler_client(handler) as ac:
             await generate("p", model="m", client=ac)
 
-    with pytest.raises(LLMTimeout, match="m: no answer"):
+    with pytest.raises(httpx.ReadTimeout):
         asyncio.run(run())
     assert len(calls) == 2
+
+
+def test_answer_time_is_uncapped():
+    # user decision 2026-11: models may take as long as they like — read/pool/
+    # write have no deadline; only connect stays bounded (fail fast on dead host).
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return respond("ok", request)
+
+    asyncio.run(generate("p", model="m", client=handler_client(handler)))
+    timeout = seen[0].extensions["timeout"]
+    assert timeout["read"] is None and timeout["connect"] == 30.0
 
 
 def test_5xx_retried_once_then_ok():
