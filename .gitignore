@@ -23,5 +23,6 @@ venv/
 # cloned target repos (read-only inputs, never commit)
 repo_cache/
 
-# generated reports
-vault/
+# generated reports (folder kept in git via .gitkeep; contents ignored)
+vault/*
+!vault/.gitkeep
