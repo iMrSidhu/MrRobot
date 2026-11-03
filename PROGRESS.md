@@ -1,10 +1,11 @@
 # PROGRESS
 
 ## Current step
-Step 09 done. Next: step 10 — LLM client (see prompts/INDEX.md).
+Step 10 done. Next: step 11 — synthesis worker (see prompts/INDEX.md).
 
 ## Log
 <!-- one entry per finished step, newest first: `05 — what was done — restore/05` -->
+- 10 — llm_engine/client.py: async Ollama wrapper on /api/generate (httpx, no ollama pkg), process-wide asyncio.Semaphore(1) VRAM lock (§2 principle 3); generate() retries transient errors once, persistent timeout -> LLMTimeout from LLM_TIMEOUT_SEC; generate_json(model,prompt,schema) appends schema reminder, clean_json_text strips code fences/prose + fixes trailing commas, pydantic-validates, retries once with STRICT reminder; 8 mocked-transport tests incl. acceptance "two concurrent calls serialize" (async handler yields, max_active==1) — restore/10
 - 09 — processor/service.py run_once/run_forever (sync loop — all work is blocking IO): claim QUEUED->CLONING, clone_repo, process_repo, save ProcessedRepo JSON at <cache_dir>/<sanitized>.processed.json (helper processed_json_path), set PROCESSED, always cleanup clone; ANY exception -> FAILED_AUDIT status+error+event inner-guarded, loop never stops; python -m processor [--once]; 6 tests w/ fake clone (success, failure, failure-then-continue, chunker-crash cleanup, empty, --once) — restore/09
 - 08 — processor/chunker.py process_repo -> ProcessedRepo: flattened tree of kept files (budgeted), README chunked, entry points (main/__main__/cli/app/agent stems) summarized via ast (imports, class/func signatures, first docstring lines; SyntaxError falls back to raw text), greedy chunk packing at chars/4 vs CONTEXT_BUDGET_TOKENS with hard line-slice guarantee, security_candidates ranked by regex hit count (subprocess/eval/exec/pickle/os.system/shell=True/dynamic requests-httpx/secret strings); 10 tests on fixture files — restore/08
 - 07 — processor/filter.py filter_repo/keep_file: allow-list LANGUAGE_BY_EXT + README; deny DENY_DIRS/LOCKFILE_NAMES/IMAGE+BINARY_EXTS/MINIFIED_SUFFIXES/MAX_FILE_SIZE=200KB/NUL-byte sniff; skips symlinks; dir-deny matched relative to repo root; returns sorted KeptFile(path,size,language); editable constants at top; 10 tests (one per rule) on synthetic trees — restore/07
@@ -30,4 +31,5 @@ Step 09 done. Next: step 10 — LLM client (see prompts/INDEX.md).
 - shared/db.py: sqlite3 + RETURNING requires closing the cursor before conn.commit() ("SQL statements in progress" otherwise).
 - processor/clone.py: git clones its objects read-only, so wiping `.git` on Windows needs a chmod-on-PermissionError rmtree (`_rmtree_force`); plain `rmtree(ignore_errors=True)` silently leaves `.git` behind.
 - ProcessedRepo JSON artifact convention: `<REPO_CACHE_DIR>/<sanitize_dir_name(name)>.processed.json` — use `processor.service.processed_json_path()`; it survives clone cleanup and is what the LLM/analysis steps (10-13) should read.
+- llm_engine.client._MODEL_LOCK is an in-process asyncio semaphore only. If steps 11-13 run synthesis and security workers as SEPARATE OS processes, VRAM serialization must be enforced between them (single dispatcher process, or one worker doing both stages in order) — the lock alone won't span processes.
 - Bash scripts must run under Git Bash (`C:\Program Files\Git\bin\bash.exe`); PATH `bash` here is WSL and can't see `D:\`.
