@@ -93,3 +93,20 @@ def test_generate_json_repairs_fenced_output(monkeypatch):
     result = asyncio.run(run())
     assert result == Answer(answer="42")
     assert "STRICT" not in prompts[0]          # first attempt succeeded
+
+def test_empty_completion_fails_fast(monkeypatch):
+    # reasoning models can burn the whole budget on hidden thinking and
+    # return visible content '' - must NOT pass silently into a fake report
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "test-key")
+    calls = []
+
+    async def handler(request):
+        calls.append(1)
+        return ok_reply("")
+
+    async def run():
+        return await cloud_client.generate("P", client=make_client(handler))
+
+    with pytest.raises(RuntimeError, match="empty completion"):
+        asyncio.run(run())
+    assert len(calls) == 1  # no retry: same budget, same silent emptiness

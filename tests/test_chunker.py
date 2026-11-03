@@ -104,6 +104,22 @@ def test_unparsable_python_falls_back_to_raw(repo):
     assert "RUN_RAW_SENTINEL" in summary
 
 
+# --- AST parser is optional (AST_SUMMARY) ----------------------------------------
+def test_ast_flag_off_returns_raw_source(repo):
+    raw = summarize_source(repo / "main.py", use_ast=False)
+    assert "return cmd" in raw          # function body present: no summarizing
+    assert "module docstring:" not in raw  # summary-only marker absent
+
+
+def test_ast_flag_off_end_to_end(repo, monkeypatch):
+    import processor.chunker as chunker
+    from shared.config import load_settings
+    monkeypatch.setenv("AST_SUMMARY", "0")
+    monkeypatch.setattr(chunker, "settings", load_settings())
+    joined = "\n".join(process_repo(1, "a/b", repo).code_chunks)
+    assert "return cmd" in joined  # raw entry-point text reached the LLM chunks
+
+
 # --- entry-point detection ----------------------------------------------------
 def test_entry_points_only(repo):
     result = process_repo(1, "acme/rover", repo)

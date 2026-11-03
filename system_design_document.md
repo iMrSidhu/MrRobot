@@ -73,7 +73,7 @@ To prevent cascading failures (e.g., if GitHub rate-limits or a massive repo cra
 * **Local Inference Runtime:** Ollama (running lightweight, high-performance local models optimized for 6GB VRAM: e.g., `qwen2.5-coder:3b` for synthesis and `phi3:mini` or `qwen2.5-coder:1.5b` for security auditing).
 * **Database & State Management:** SQLite + Local JSON/Markdown file store (leveraging the 40GB system RAM for in-memory caching and fast retrieval).
 * **Dashboard / UI:** Streamlit (for rapid 12-hour deployment of a live command center HUD) + Server-Sent Events (SSE) for real-time telemetry streaming.
-* **Code Processing:** Custom Python AST parser + `pathlib` for lightweight directory tree flattening.
+* **Code Processing:** `pathlib` for lightweight directory tree flattening, plus an **optional** Python AST parser that summarizes entry points (`AST_SUMMARY=1` default; `=0` feeds raw entry-point text). The parser is never a hard dependency — off or unparseable files always fall back to raw text.
 
 ---
 

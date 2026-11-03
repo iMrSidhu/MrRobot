@@ -8,7 +8,7 @@ from shared.config import load_settings  # noqa: E402
 KEYS = [
     "GITHUB_TOKEN", "DB_PATH", "REPO_CACHE_DIR", "VAULT_DIR", "OLLAMA_HOST",
     "SYNTHESIS_MODEL", "SECURITY_MODEL", "MIN_STARS", "SEARCH_KEYWORDS",
-    "POLL_INTERVAL_SEC", "LLM_TIMEOUT_SEC", "CONTEXT_BUDGET_TOKENS",
+    "POLL_INTERVAL_SEC", "LLM_TIMEOUT_SEC", "CONTEXT_BUDGET_TOKENS", "AST_SUMMARY",
 ]
 
 
@@ -32,6 +32,7 @@ def test_defaults(monkeypatch):
     assert s.poll_interval_sec == 300
     assert s.llm_timeout_sec == 120
     assert s.context_budget_tokens == 6000
+    assert s.ast_summary is True
 
 
 def test_env_overrides(monkeypatch):
@@ -40,8 +41,10 @@ def test_env_overrides(monkeypatch):
     monkeypatch.setenv("SECURITY_MODEL", "qwen2.5-coder:1.5b")
     monkeypatch.setenv("SEARCH_KEYWORDS", "agent, harness")
     monkeypatch.setenv("DB_PATH", "custom.db")
+    monkeypatch.setenv("AST_SUMMARY", "0")
     s = load_settings()
     assert s.min_stars == 5000
     assert s.security_model == "qwen2.5-coder:1.5b"
     assert s.search_keywords == ("agent", "harness")
     assert s.db_path == "custom.db"
+    assert s.ast_summary is False

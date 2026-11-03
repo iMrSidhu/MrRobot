@@ -3,9 +3,10 @@
 Reads a filtered clone (processor.filter) as plain text only — nothing here
 imports or executes cloned code. Token estimate is chars/4 (design §4 keeps it
 deliberately crude); every returned chunk is guaranteed <= CONTEXT_BUDGET_TOKENS
-* 4 characters. Python entry points are reduced to an AST summary (imports,
-class/function signatures, docstrings); anything unparseable falls back to raw
-text instead of crashing.
+* 4 characters. Python entry points are OPTIONALLY reduced to an AST summary
+(imports, class/function signatures, docstrings) — AST_SUMMARY=1 (default)
+summarizes, =0 feeds raw entry-point text; unparseable files always fall back
+to raw text, so the AST parser is an accelerator, never a required dependency.
 """
 import ast
 import re
@@ -99,11 +100,12 @@ def _doc_note(node: ast.AST) -> str:
     return f"  # {doc.splitlines()[0]}" if doc else ""
 
 
-def summarize_source(path: Path) -> str:
-    """AST summary for .py files, raw text otherwise. Syntax errors fall back
+def summarize_source(path: Path, use_ast: bool = True) -> str:
+    """AST summary for .py files when use_ast (settings.ast_summary), raw text
+    otherwise — and always raw for non-Python files. Syntax errors fall back
     to raw text (read_text uses errors='replace', so decoding never throws)."""
     text = path.read_text(encoding="utf-8", errors="replace")
-    if path.suffix.lower() != ".py":
+    if not use_ast or path.suffix.lower() != ".py":
         return text
     try:
         tree = ast.parse(text)
@@ -215,7 +217,7 @@ def process_repo(repo_id: int, name: str, root: str | Path,
     readmes = [f"=== {_rel(root, k.path)} ===\n"
                f"{digest_markdown(k.path.read_text(encoding='utf-8', errors='replace'))}"
                for k in kept if k.language == "Markdown"]
-    code_items = [f"=== {_rel(root, k.path)} ===\n{summarize_source(k.path)}"
+    code_items = [f"=== {_rel(root, k.path)} ===\n{summarize_source(k.path, settings.ast_summary)}"
                   for k in find_entry_points(kept)]
 
     return ProcessedRepo(

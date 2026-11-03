@@ -27,6 +27,7 @@ class Settings:
     poll_interval_sec: int
     llm_timeout_sec: int
     context_budget_tokens: int
+    ast_summary: bool
 
 
 def load_settings() -> Settings:
@@ -49,6 +50,7 @@ def load_settings() -> Settings:
         poll_interval_sec=int(_env("POLL_INTERVAL_SEC", "300")),
         llm_timeout_sec=int(_env("LLM_TIMEOUT_SEC", "120")),
         context_budget_tokens=int(_env("CONTEXT_BUDGET_TOKENS", "6000")),
+        ast_summary=bool(int(_env("AST_SUMMARY", "1"))),
     )
 
 

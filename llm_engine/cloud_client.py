@@ -31,7 +31,11 @@ logger = get_logger("llm_engine.cloud")
 DEFAULT_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
 API_KEY_ENV = "OPENCODE_GO_API_KEY"
 CLOUD_MODEL = os.environ.get("SENTINEL_CLOUD_MODEL", "deepseek-v4.1-flash")
-MAX_TOKENS_PER_CALL = 1500
+# hardware calibration: deepseek-v4.1-flash is a REASONING model — measured
+# 2026-11-04, an 18k-char dossier chunk with max_tokens=8000 finished with
+# finish_reason=length, 8000 hidden reasoning tokens and ZERO visible content;
+# 16000 gives it headroom for reasoning + answer. Do not lower for speed.
+MAX_TOKENS_PER_CALL = 16_000
 # same policy the user set for local: answer time uncapped, connect bounded
 REQUEST_TIMEOUT = httpx.Timeout(None, connect=30.0)
 # stable per-process session id — Go asks for one to optimize routing/caching
@@ -70,7 +74,13 @@ async def generate(prompt: str, *, model: str | None = None,
                     timeout=REQUEST_TIMEOUT,
                 )
                 resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"]
+                content = resp.json()["choices"][0]["message"]["content"]
+                if not (content or "").strip():
+                    # a fake-empty report is worse than a loud failure
+                    raise RuntimeError(
+                        f"{CLOUD_MODEL}: empty completion — model spent the "
+                        f"whole max_tokens={max_tokens} budget on hidden reasoning")
+                return content
             except (httpx.HTTPError, OSError, asyncio.TimeoutError) as exc:
                 last_exc = exc
                 logger.warning("opencode-go call failed (attempt %d): %r",
