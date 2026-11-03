@@ -1,10 +1,11 @@
 # PROGRESS
 
 ## Current step
-Step 03 done. Next: step 04 — GitHub client (see prompts/INDEX.md).
+Step 04 done. Next: step 05 — Ingestion service (see prompts/INDEX.md).
 
 ## Log
 <!-- one entry per finished step, newest first: `05 — what was done — restore/05` -->
+- 04 — ingestion/github_client.py: async search_repositories ('<kw> stars:>N', sort=stars, paginated, cross-keyword dedupe, optional token), RateLimited(wait_seconds) from Retry-After / X-RateLimit-Reset / remaining=0; 8 httpx-MockTransport tests, no live network — restore/04
 - 03 — shared/models.py pydantic contracts (RepoCandidate, ProcessedRepo, SynthesisResult, Finding, SecurityResult, 7 STATUSES) + shared/db.py SQLite WAL queue/events (dedupe by name, atomic claim_next via UPDATE...RETURNING, event feed); 18 tests green — restore/03
 - 02 — scripts/check_ollama.py (--pull, latency probes, nvidia-smi VRAM), README 'Local setup', 5 mocked tests; live run: Ollama reachable, models NOT yet pulled (exit 2) — restore/02
 - 01 — service packages, requirements.txt, shared/config.py typed settings, shared/logging.py, .env.example, vault/.gitkeep tracked, tests green (2 passed) — restore/01-r2
