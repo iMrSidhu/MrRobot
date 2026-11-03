@@ -6,7 +6,7 @@ Prompt file per step lives at `prompts/<step>-<slug>.md` (created when the step 
 |------|-------|-------------|--------|-----|
 | 01 | Skeleton & config | §5 Phase 1 (1.1), §4 | done | restore/01-r2 |
 | 02 | Ollama check | §5 Phase 1 (1.2), §4 | done | restore/02 |
-| 03 | DB & shared contracts | §5 Phase 1 (1.3), §2 | todo | — |
+| 03 | DB & shared contracts | §5 Phase 1 (1.3), §2 | done | restore/03 |
 | 04 | GitHub client | §5 Phase 2 (2.1) | todo | — |
 | 05 | Ingestion service | §5 Phase 2 (2.1–2.3), §3 (1) | todo | — |
 | 06 | Safe clone | §5 Phase 3 (3.1), §3 (2) | todo | — |
