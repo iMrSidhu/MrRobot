@@ -11,8 +11,13 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
+import { fetchHealth } from '../api/client';
 import { useClock } from '../hooks/useClock';
+import { useLiveEvents } from '../hooks/useLiveEvents';
+import { useResource } from '../hooks/useResource';
 import Overview from '../pages/Overview';
+import Repository from '../pages/Repository';
+import { useParam } from '../state/url';
 
 type TabId = 'overview' | 'repository' | 'adoption' | 'contribution' | 'integration' | 'changes';
 
@@ -27,17 +32,29 @@ type NavItem = {
 
 const NAV: readonly NavItem[] = [
   { id: 'overview', label: 'Overview', code: '01', icon: Gauge, enabled: true },
-  { id: 'repository', label: 'Repository', code: '02', icon: Radar, enabled: false },
+  { id: 'repository', label: 'Repository', code: '02', icon: Radar, enabled: true },
   { id: 'adoption', label: 'Adoption', code: '03', icon: PackageCheck, enabled: false },
   { id: 'contribution', label: 'Contribution', code: '04', icon: GitPullRequest, enabled: false },
   { id: 'integration', label: 'Integration', code: '05', icon: Plug, enabled: false },
   { id: 'changes', label: 'Changes', code: '06', icon: History, enabled: false },
 ];
 
+const TAB_IDS = NAV.filter((item) => item.enabled).map((item) => item.id);
+
+function isTabId(value: string | null): value is TabId {
+  return value !== null && (TAB_IDS as string[]).includes(value);
+}
+
 export default function Shell() {
-  const [tab, setTab] = useState<TabId>('overview');
+  const [view, setView] = useParam('view');
   const [navOpen, setNavOpen] = useState(false);
   const now = useClock();
+  /** Re-checks reachability whenever the stream retries, so the badge cannot claim "reachable" while the API is dead. */
+  const live = useLiveEvents();
+  const health = useResource(`health:${live.attempts}`, fetchHealth);
+
+  const tab: TabId = isTabId(view) ? view : 'overview';
+  const apiState = health.status === 'loading' ? 'CHECKING' : health.status === 'ready' ? 'REACHABLE' : 'OFFLINE';
 
   const clock = now.toLocaleTimeString('en-GB', { hour12: false });
   const date = now
@@ -55,7 +72,7 @@ export default function Shell() {
               disabled={!item.enabled}
               aria-current={active ? 'page' : undefined}
               onClick={() => {
-                setTab(item.id);
+                setView(item.id);
                 setNavOpen(false);
               }}
               className={`group relative flex w-full items-center gap-3 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed ${
@@ -116,9 +133,16 @@ export default function Shell() {
           </div>
 
           <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
-            <Activity size={14} className="text-zinc-500" aria-hidden="true" />
+            <Activity
+              size={14}
+              className={apiState === 'REACHABLE' ? 'text-cy' : apiState === 'OFFLINE' ? 'text-crim' : 'text-zinc-500'}
+              aria-hidden="true"
+            />
             <span className="font-mono text-[11px] tracking-[0.14em] text-zinc-400">
-              API: <span className="text-crim">NOT CONNECTED</span>
+              API:{' '}
+              <span className={apiState === 'REACHABLE' ? 'text-cy' : apiState === 'OFFLINE' ? 'text-crim' : 'text-zinc-400'}>
+                {apiState}
+              </span>
             </span>
           </div>
 
@@ -155,7 +179,8 @@ export default function Shell() {
 
         <main id="main" className="min-w-0 p-4">
           <h1 className="sr-only">Sentinel capability and security terminal</h1>
-          {tab === 'overview' ? <Overview /> : null}
+          {tab === 'overview' && <Overview live={live} />}
+          {tab === 'repository' && <Repository events={live.events} />}
         </main>
       </div>
     </div>

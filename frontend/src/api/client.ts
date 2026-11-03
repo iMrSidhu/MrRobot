@@ -2,7 +2,7 @@ import { isRecord } from './legacy';
 import type { HealthResponse, RepoRow } from './types';
 
 /** Same-origin path. Dev uses the Vite proxy; production serves the frontend beside the API. */
-const BASE = '/api';
+export const API_BASE = '/api';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -23,7 +23,7 @@ export class CompatibilityError extends Error {
 }
 
 async function getJson(path: string, signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     signal,
     headers: { accept: 'application/json' },
   });
@@ -67,4 +67,13 @@ export async function fetchRepos(signal?: AbortSignal): Promise<RepoRow[]> {
 /** Raw payload: `mapRepoDetail` turns it into renderable data. */
 export function fetchRepoDetail(repoId: number, signal?: AbortSignal): Promise<unknown> {
   return getJson(`/repos/${repoId}`, signal);
+}
+
+/** Markdown report for one repository. The API's filesystem `path` is ignored on purpose. */
+export async function fetchReport(repoId: number, signal?: AbortSignal): Promise<string> {
+  const body = await getJson(`/repos/${repoId}/report`, signal);
+  if (!isRecord(body) || typeof body.markdown !== 'string') {
+    throw new CompatibilityError('Report response has no markdown field.');
+  }
+  return body.markdown;
 }
