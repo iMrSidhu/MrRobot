@@ -5,6 +5,7 @@ Step 17 done — ALL 17 STEPS COMPLETE (restore/00..17). Next: nothing queued; r
 
 ## Log
 <!-- one entry per finished step, newest first: `05 — what was done — restore/05` -->
+- docs — final "Skipped & problematic" ledger section added to PROGRESS.md (steps 00–17, supersedes the step-09 snapshot); LEDGER.md replaced by a pointer — restore/17-r2
 - 17 — scripts/run_all.py supervisor: 5 subprocesses (python -m ingestion/processor/llm_engine, uvicorn api :8000, streamlit HUD :8501, ports via SENTINEL_API_PORT/HUD_PORT), per-service exponential backoff 1s->60s cap reset after 60s healthy, clean exit-code-0 no-restart, SIGINT/SIGTERM reverse-order terminate+kill-10s, --list flag; tests/test_e2e.py full pipeline on fixtures (fake GitHub search returns LOCAL git repo path as clone_url -> real clone/filter/chunk; fake Ollama transport routes by model name; asserts DONE + vault report w/ synthesis text + claims/reality + known-token-prefix surviving empty model-B reply + 5 event types in exact order + clone dirs cleaned), run_all backoff/list test; llm_engine service run_once/run_forever gained optional client= passthrough (used only by tests); README completed (env table, running, demo, troubleshooting, prompts/restore-tag workflow) — restore/17
 - 16 — scripts/seed_demo.py (idempotent: 3 fake repos - 2 DONE with .synthesis/.security sidecars + vault report + full event timeline, 1 QUEUED); dashboard/feed.py SSE reader (parse_sse_lines + feed thread w/ automatic DB-polling fallback on stream drop, FeedState ring buffer); dashboard/app.py 3-panel HUD: left event radar in @st.fragment(run_every=1s) fed by the thread, center Marketing-vs-Reality split card + capability tag cloud (size = tag frequency across analyzed repos), right severity-sorted finding cards + deduped action items; empty-state boxes everywhere; SENTINEL_DB_PATH/API_URL/FEED=off env overrides for tests/headless; 10 tests (feed mechanics sync-injected, AppTest panels/empty/refresh-on-insert) — restore/16
 - 15 — dashboard/api.py read-only FastAPI (factory create_app(db_path) + module `app` for uvicorn): /health, /repos, /repos/{id} returning repo row + synthesis JSON (from DB synthesis_path) + security JSON (guessed as the `.security.json` sibling), /events/stream SSE from events table honoring Last-Event-ID resume, 0.25s poll (<1s delivery acceptance), Cache-Control no-cache + X-Accel-Buffering no; 6 TestClient tests incl. reconnect-from-id and a thread-written event observed live under 1s — restore/15
@@ -34,6 +35,52 @@ Step 17 done — ALL 17 STEPS COMPLETE (restore/00..17). Next: nothing queued; r
 - Vault reports carry NO generation timestamp (golden-file comparison would break on one; also re-analysis overwrites the file anyway). If history matters later, step 15+ can log REPORTED events as the timeline instead.
 - run_security takes a `root` dir argument (task text said run_security(processed_repo)): file-existence/line validation and the regex sweep need the repo files ON DISK, but the processor wipes the clone at PROCESSED (step 09) and ProcessedRepo JSON stores no file bodies. RESOLVED in step 13: the analysis service clone_repo()s again right before the security pass (synthesis runs first, so a model-A death costs no clone).
 - llm_engine/service.py imports clone_repo/cleanup/sanitize_dir_name FROM processor.clone — breaks AGENT_PROTOCOL rule c (only shared/{db,config,models}) at source level. Chose reuse over duplicating security-hardened clone code (runtime stays independent: separate processes). If this bothers you, move processor/clone.py -> shared/clone.py and re-point imports (say the word, it's a 4-file change).
+
+## Skipped & problematic things — final ledger (steps 00–17)
+
+Supersedes LEDGER.md (steps 00–09 snapshot; it now points here). Source: per-step reports, `shortcut:` comments, Open questions above.
+
+### Deliberately skipped / known limits (things to know before a real run)
+
+| # | Item | Where | Why / risk |
+|---|------|-------|------------|
+| 1 | **Ollama models never pulled** (~4.5 GB) | step 02 | Still the biggest pending thing. Live LLM stages fail with LLMTimeout until `python scripts/check_ollama.py --pull`. |
+| 2 | **No `.env`; `GITHUB_TOKEN` empty** | step 01 | Unauthenticated search = ~10 req/min. Works, just slow; RateLimited handling exists. |
+| 3 | **GitPython skipped → hardened subprocess git** | step 06 | Task demanded exact `-c` flags; subprocess is smaller and more faithful than §4's suggestion. |
+| 4 | **REST only — GraphQL skipped** | step 04 | Design said "REST/GraphQL"; REST covers the need. |
+| 5 | **Client doesn't wait itself** — raises `RateLimited(wait_seconds)`, ingestion sleeps | step 04–05 | One retry policy, in one place, on purpose. |
+| 6 | **`MAX_PAGES = 10` search cap** | step 04 | GitHub caps search at 1000 results anyway; `shortcut:` comment in code. |
+| 7 | **`.txt`/`LICENSE` dropped by filter** | step 07 | §3.2 says "core source + README"; one constant to change. |
+| 8 | **Entry points = exact stem match** `{main,__main__,cli,app,agent}` | step 08 | A repo whose real entry is `run.py`/`server.py` gets no code chunks (tree + README still feed Model A). |
+| 9 | **chars/4 token estimate; non-Python entries stay raw** | step 08 | Crude by design; JS/Go files chunked verbatim, no signature extraction. |
+| 10 | **Security candidate picking = regex heuristics, not semantic** | step 08 | Upgrades to AST/taint later; the step-12 sweep compensates by scanning ALL small text files deterministically. |
+| 11 | **Processor emits no success events** (status column only) | step 09 | Design mandates only FAILED_AUDIT; llm_engine adds ANALYSIS_START/SYNTHESIS_DONE/SECURITY_DONE/REPORTED. |
+| 12 | **`--once` always exits 0** | steps 05/09/13 | "Processed N repos" is not a failure; cron/CI friendly. Errors land in the DB + events. |
+| 13 | **No conftest.py/pytest config** → 1-line `sys.path` shim per test file | step 01 | Step-01 acceptance forbade extra files. Also: `pytest-asyncio` and `ollama` sit in requirements.txt unused (tests use asyncio.run; client uses httpx). |
+| 14 | **VRAM lock is per-process** | steps 10–13 | `client._MODEL_LOCK` serializes Model A→B inside ONE llm_engine process (which is how step 13 runs). Launching two llm_engine processes, or splitting the workers, voids the 6 GB guarantee. |
+| 15 | **Synthesis budget ignores template overhead** | step 11 | alloc = budget/3 per slot; a pathological prompt could nudge the final call over CONTEXT_BUDGET_TOKENS (chars/4 was always an estimate). |
+| 16 | **LLM security audit reads top candidates only, ~8 KB per file, half the budget** | step 12 | Files past the budget are NOT model-audited — the deterministic secret sweep still covers the whole tree, so the gap is nuanced vulns, not planted keys. |
+| 17 | **Security needs files on disk → analysis re-clones each repo** | steps 12–13 | Design assumed one clone; processor wipes the tree at PROCESSED, so llm_engine clone_repo()s again before Model B. Costs bandwidth/time per repo, nothing more. |
+| 18 | **llm_engine imports `processor.clone`** — breaks AGENT_PROTOCOL rule c at source level | step 13 | Chose reuse over duplicating hardened clone code; runtime processes stay independent. Fix if it bothers you: move to `shared/clone.py` (4-file change). |
+| 19 | **Some constants duplicated across services** (MAX_SCAN_BYTES, CHARS_PER_TOKEN, filename sanitizing in report.py) | steps 07/08/12/14 | Independence (§2) beats DRY here; values match, comment says so. |
+| 20 | **Reports have no timestamp; re-analysis overwrites the vault file** | step 14 | Golden tests stay stable; REPORTED events are the only timeline. |
+| 21 | **API guesses the security JSON location** from synthesis_path's sibling name | step 15 | DB has no column for it; `shortcut:` comment + tests pin the naming convention. |
+| 22 | **SSE is a 0.25 s poll, not a push** | step 15 | Fine at event volumes; Last-Event-ID resume makes reconnects lossless. |
+| 23 | **Feed degrades one-way: SSE → DB polling, never back**; feed thread is a daemon with no shutdown hook | step 16 | `shortcut:` in code; restart the HUD to get SSE back. |
+| 24 | **seed_demo writes into the REAL sentinel.db/vault/repo_cache** unless SENTINEL_DB_PATH etc. are overridden | step 16 | All gitignored; reset = delete `sentinel.db` + `vault/*`. |
+| 25 | **run_all.py never live-smoke-tested** (uvicorn/streamlit restart paths) | step 17 | Backoff math + `--list` are unit-tested; needs models pulled + a token to prove out. Shared console, no per-service log files. |
+| 26 | **Rollback branches stay local** | step 00 | Publishing `rollback/*` would need force-push — forbidden by protocol; rollback.sh prints make-main steps. |
+
+### Problems found & fixed (now guarded by tests/notes)
+
+- sqlite3 `RETURNING` + commit crash → close cursor before commit (03) · Windows read-only `.git` survived rmtree → `_rmtree_force` chmod retry (06) · chunker dropped module docstrings (join bug, caught by test) (08) · CRLF corrupting `.sh` → `.gitattributes` `restore/00-r2` · `.gitignore` swallowing `vault/.gitkeep` → `restore/01-r2` · sync SSE generator hung TestClient teardown → async generator (15, note above) · seed_demo subscripted `add_repo_if_new`'s None on re-run (fixed pre-commit, 16) · e2e AsyncClient lacked `base_url` → relative-path ValueError silently swallowed by ingestion's error path (fixed pre-commit, 17) · first-draft dashboard had 3 dead/broken blocks — full rewrite beat patching (16) · env: PS execution policy PATH-prepend, cp1252 ASCII prints, WSL-bash-vs-Git-bash, unrelated-histories merge + transient Connection reset before credentials were stored.
+
+### Process debt
+
+- **DECISIONS.md is stale** — only the step-00 entry; every later non-obvious choice went into PROGRESS Open questions instead. Backfill on request.
+- Open questions above (stars-first queue, /tmp/repo_cache on Windows, invented defaults `sentinel.db`/300 s/120 s) are still open — none has bitten yet.
+
+**Do first for a real run:** #1 pull models → #2 add token → `python scripts/run_all.py`.
 
 ## Notes for next session
 - Run only the current step; finish with `scripts/checkpoint.sh <step-id> '<message>'` (AGENT_PROTOCOL.md).
