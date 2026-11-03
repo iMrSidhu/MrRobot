@@ -4,7 +4,7 @@ Prompt file per step lives at `prompts/<step>-<slug>.md` (created when the step 
 
 | Step | Title | Design refs | Status | Tag |
 |------|-------|-------------|--------|-----|
-| 01 | Skeleton & config | §5 Phase 1 (1.1), §4 | todo | — |
+| 01 | Skeleton & config | §5 Phase 1 (1.1), §4 | done | restore/01 |
 | 02 | Ollama check | §5 Phase 1 (1.2), §4 | todo | — |
 | 03 | DB & shared contracts | §5 Phase 1 (1.3), §2 | todo | — |
 | 04 | GitHub client | §5 Phase 2 (2.1) | todo | — |

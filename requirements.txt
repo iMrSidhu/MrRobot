@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sse-starlette
+streamlit
+httpx
+pydantic
+python-dotenv
+ollama
+pytest
+pytest-asyncio
