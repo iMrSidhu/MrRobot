@@ -136,7 +136,7 @@ def seed(db_path=None, cache_dir=None, vault_dir=None) -> dict:
             # full lifecycle event timeline, ids in insertion order
             for etype, message in [
                 ("DISCOVERED", f"{spec['name']} ({spec['stars']} stars)"),
-                ("ANALYSIS_START", "synthesis starting (qwen2.5-coder:3b)"),
+                ("ANALYSIS_START", "synthesis starting (qwen3.8-27b)"),
                 ("SYNTHESIS_DONE", f"tags: {', '.join(synth.capability_tags)}"),
                 ("SECURITY_DONE", f"{len(security.findings)} findings after validation"),
                 ("REPORTED", f"report at {report}"),

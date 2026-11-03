@@ -139,3 +139,18 @@ def test_cleanup_removes_tree_and_ignores_missing(tmp_path):
     cleanup(target)
     assert not target.exists()
     cleanup(target)                              # no error on missing path
+
+def test_local_directory_url_is_copied_not_cloned(tmp_path):
+    src = tmp_path / 'tree'
+    (src / 'pkg').mkdir(parents=True)
+    (src / 'pkg' / 'main.py').write_text('print(1)', encoding='utf-8')
+    (src / '.git').mkdir()
+    (src / '.git' / 'config').write_text('gitdata', encoding='utf-8')
+
+    dest = clone_repo(str(src), 'local/colibri', dest_root=tmp_path / 'cache')
+
+    assert (dest / 'pkg' / 'main.py').read_text(encoding='utf-8') == 'print(1)'
+    assert not (dest / '.git').exists()                       # git metadata never enters cache
+    assert (src / '.git' / 'config').exists()                 # source untouched
+    cleanup(dest)
+    assert src.exists() and dest.exists() is False

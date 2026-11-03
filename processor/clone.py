@@ -52,8 +52,10 @@ def clone_repo(url: str, name: str, *, dest_root: Path | None = None,
                timeout: int = CLONE_TIMEOUT_SEC) -> Path:
     """Shallow-clone ``url`` into ``repo_cache_dir/<sanitized name>``.
 
-    Returns the clone directory. A pre-existing directory for the same repo
-    is replaced. Raises CloneError on timeout or git failure.
+    If ``url`` is an existing local directory, its tree is copied there instead
+    (git metadata dropped, source untouched). Returns the cache directory. A
+    pre-existing directory for the same repo is replaced. Raises CloneError on
+    timeout or git/copy failure.
     """
     root = Path(dest_root or settings.repo_cache_dir).resolve()
     dest = root / sanitize_dir_name(name)
@@ -61,6 +63,18 @@ def clone_repo(url: str, name: str, *, dest_root: Path | None = None,
         raise CloneError(f"refusing to clone outside cache root: {name!r}")
     cleanup(dest)
     root.mkdir(parents=True, exist_ok=True)
+
+    if Path(url).is_dir():
+        # url is a local working tree (e.g. an unzipped clone): analyze a COPY
+        # inside the cache; the source is never executed, modified or deleted.
+        # shortcut: symlinks are followed by the copy; upgrade to a hostile-
+        # aware manifest copy if a source tree with links ever matters.
+        try:
+            shutil.copytree(url, dest, ignore=shutil.ignore_patterns(".git"))
+        except (OSError, shutil.Error) as exc:
+            cleanup(dest)
+            raise CloneError(f"copy of local tree {name!r} failed: {exc}")
+        return dest
 
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"    # never open a username/password prompt
