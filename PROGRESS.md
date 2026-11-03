@@ -1,10 +1,11 @@
 # PROGRESS
 
 ## Current step
-Step 10 done. Next: step 11 — synthesis worker (see prompts/INDEX.md).
+Step 11 done. Next: step 12 — security worker (see prompts/INDEX.md).
 
 ## Log
 <!-- one entry per finished step, newest first: `05 — what was done — restore/05` -->
+- 11 — llm_engine/prompts/synthesis.md (file-based Model A template, edit w/o code) + llm_engine/synthesis.py run_synthesis(processed_repo)->SynthesisResult: per-slot budget alloc = context_budget*4/3 chars (floor 500); oversized tree/readme/code slots compressed via chunk-by-chunk PARTIAL DOSSIER generate passes then merged into the final generate_json call; small repos = exactly 1 call; 3 fake-transport tests (single-call validation, empty slots, oversized summarize-then-merge) — restore/11
 - 10 — llm_engine/client.py: async Ollama wrapper on /api/generate (httpx, no ollama pkg), process-wide asyncio.Semaphore(1) VRAM lock (§2 principle 3); generate() retries transient errors once, persistent timeout -> LLMTimeout from LLM_TIMEOUT_SEC; generate_json(model,prompt,schema) appends schema reminder, clean_json_text strips code fences/prose + fixes trailing commas, pydantic-validates, retries once with STRICT reminder; 8 mocked-transport tests incl. acceptance "two concurrent calls serialize" (async handler yields, max_active==1) — restore/10
 - 09 — processor/service.py run_once/run_forever (sync loop — all work is blocking IO): claim QUEUED->CLONING, clone_repo, process_repo, save ProcessedRepo JSON at <cache_dir>/<sanitized>.processed.json (helper processed_json_path), set PROCESSED, always cleanup clone; ANY exception -> FAILED_AUDIT status+error+event inner-guarded, loop never stops; python -m processor [--once]; 6 tests w/ fake clone (success, failure, failure-then-continue, chunker-crash cleanup, empty, --once) — restore/09
 - 08 — processor/chunker.py process_repo -> ProcessedRepo: flattened tree of kept files (budgeted), README chunked, entry points (main/__main__/cli/app/agent stems) summarized via ast (imports, class/func signatures, first docstring lines; SyntaxError falls back to raw text), greedy chunk packing at chars/4 vs CONTEXT_BUDGET_TOKENS with hard line-slice guarantee, security_candidates ranked by regex hit count (subprocess/eval/exec/pickle/os.system/shell=True/dynamic requests-httpx/secret strings); 10 tests on fixture files — restore/08

@@ -14,7 +14,7 @@ Prompt file per step lives at `prompts/<step>-<slug>.md` (created when the step 
 | 08 | Tree & chunker | §5 Phase 3 (3.3) | done | restore/08 |
 | 09 | Processor service | §5 Phase 3, §2 (isolation) | done | restore/09 |
 | 10 | LLM client | §4, §2 (VRAM semaphore) | done | restore/10 |
-| 11 | Synthesis worker | §5 Phase 4 (Model A), §3 (3) | todo | — |
+| 11 | Synthesis worker | §5 Phase 4 (Model A), §3 (3) | done | restore/11 |
 | 12 | Security worker | §5 Phase 4 (Model B), §3 (3) | todo | — |
 | 13 | Analysis service | §5 Phase 4, §2 (circuit breaking) | todo | — |
 | 14 | Report generator | §5 Phase 5 (5.1), §3 (4) | todo | — |
