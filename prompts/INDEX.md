@@ -16,7 +16,7 @@ Prompt file per step lives at `prompts/<step>-<slug>.md` (created when the step 
 | 10 | LLM client | §4, §2 (VRAM semaphore) | done | restore/10 |
 | 11 | Synthesis worker | §5 Phase 4 (Model A), §3 (3) | done | restore/11 |
 | 12 | Security worker | §5 Phase 4 (Model B), §3 (3) | done | restore/12 |
-| 13 | Analysis service | §5 Phase 4, §2 (circuit breaking) | todo | — |
+| 13 | Analysis service | §5 Phase 4, §2 (circuit breaking) | done | restore/13 |
 | 14 | Report generator | §5 Phase 5 (5.1), §3 (4) | todo | — |
 | 15 | FastAPI + SSE | §5 Phase 5 (5.2), §3 (5) | todo | — |
 | 16 | Streamlit dashboard | §5 Phase 5 (5.3) | todo | — |
