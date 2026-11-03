@@ -23,7 +23,7 @@ from shared.config import settings
 POLL_INTERVAL_SEC = 0.25
 
 
-def _load_json(path: Optional[str]) -> Optional[dict]:
+def load_json(path: Optional[str]) -> Optional[dict]:
     if not path:
         return None
     try:
@@ -32,7 +32,7 @@ def _load_json(path: Optional[str]) -> Optional[dict]:
         return None
 
 
-def _security_json_path(row: dict) -> Optional[Path]:
+def security_json_path(row: dict) -> Optional[Path]:
     """Sidecar guess: llm_engine writes <base>.synthesis.json and
     <base>.security.json next to each other (its service.py), and the DB
     stores the synthesis path - so the security JSON is its sibling.
@@ -83,11 +83,11 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
             conn.close()
         if row is None:
             raise HTTPException(status_code=404, detail=f"no repo {repo_id}")
-        sec_path = _security_json_path(row)
+        sec_path = security_json_path(row)
         return {
             "repo": row,
-            "synthesis": _load_json(row.get("synthesis_path")),
-            "security": _load_json(str(sec_path)) if sec_path else None,
+            "synthesis": load_json(row.get("synthesis_path")),
+            "security": load_json(str(sec_path)) if sec_path else None,
         }
 
     @app.get("/events/stream")
