@@ -1,10 +1,11 @@
 # PROGRESS
 
 ## Current step
-Step 08 done. Next: step 09 — Processor service (see prompts/INDEX.md).
+Step 09 done. Next: step 10 — LLM client (see prompts/INDEX.md).
 
 ## Log
 <!-- one entry per finished step, newest first: `05 — what was done — restore/05` -->
+- 09 — processor/service.py run_once/run_forever (sync loop — all work is blocking IO): claim QUEUED->CLONING, clone_repo, process_repo, save ProcessedRepo JSON at <cache_dir>/<sanitized>.processed.json (helper processed_json_path), set PROCESSED, always cleanup clone; ANY exception -> FAILED_AUDIT status+error+event inner-guarded, loop never stops; python -m processor [--once]; 6 tests w/ fake clone (success, failure, failure-then-continue, chunker-crash cleanup, empty, --once) — restore/09
 - 08 — processor/chunker.py process_repo -> ProcessedRepo: flattened tree of kept files (budgeted), README chunked, entry points (main/__main__/cli/app/agent stems) summarized via ast (imports, class/func signatures, first docstring lines; SyntaxError falls back to raw text), greedy chunk packing at chars/4 vs CONTEXT_BUDGET_TOKENS with hard line-slice guarantee, security_candidates ranked by regex hit count (subprocess/eval/exec/pickle/os.system/shell=True/dynamic requests-httpx/secret strings); 10 tests on fixture files — restore/08
 - 07 — processor/filter.py filter_repo/keep_file: allow-list LANGUAGE_BY_EXT + README; deny DENY_DIRS/LOCKFILE_NAMES/IMAGE+BINARY_EXTS/MINIFIED_SUFFIXES/MAX_FILE_SIZE=200KB/NUL-byte sniff; skips symlinks; dir-deny matched relative to repo root; returns sorted KeptFile(path,size,language); editable constants at top; 10 tests (one per rule) on synthetic trees — restore/07
 - 06 — processor/clone.py clone_repo: depth-1 --no-local clone with 300s timeout into sanitized subdirs of REPO_CACHE_DIR (GIT_TERMINAL_PROMPT=0, GIT_LFS_SKIP_SMUDGE=1, core.hooksPath=/dev/null, core.symlinks=false), immediate .git wipe, cleanup(); failure/timeout leave no partial dirs; 8 tests on local temp repos (no network) incl. malicious-hook-does-not-run — restore/06
@@ -28,4 +29,5 @@ Step 08 done. Next: step 09 — Processor service (see prompts/INDEX.md).
 - venv holds pytest, python-dotenv, httpx, pydantic (install others via `.venv\Scripts\python.exe -m pip install ...`). Activate is blocked by PS execution policy — prepend to PATH instead: `$env:Path = "$PWD\.venv\Scripts;$env:Path"` before running checkpoint.sh.
 - shared/db.py: sqlite3 + RETURNING requires closing the cursor before conn.commit() ("SQL statements in progress" otherwise).
 - processor/clone.py: git clones its objects read-only, so wiping `.git` on Windows needs a chmod-on-PermissionError rmtree (`_rmtree_force`); plain `rmtree(ignore_errors=True)` silently leaves `.git` behind.
+- ProcessedRepo JSON artifact convention: `<REPO_CACHE_DIR>/<sanitize_dir_name(name)>.processed.json` — use `processor.service.processed_json_path()`; it survives clone cleanup and is what the LLM/analysis steps (10-13) should read.
 - Bash scripts must run under Git Bash (`C:\Program Files\Git\bin\bash.exe`); PATH `bash` here is WSL and can't see `D:\`.
