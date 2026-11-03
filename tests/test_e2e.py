@@ -83,7 +83,8 @@ def test_full_pipeline_reaches_done(tmp_path):
     assert [e["type"] for e in events] == [
         "DISCOVERED", "ANALYSIS_START", "SYNTHESIS_DONE", "SECURITY_DONE", "REPORTED"]
     # intermediates land beside the processed artifact, clone dirs are gone
-    assert synth.with_name(synth.name.replace(".synthesis", ".security")).is_file()
+    sec_json = pathlib.Path(row["security_json_path"])
+    assert sec_json.is_file() and sec_json.name == "acme_rover.security.json"
     assert not any(p.is_dir() and p.name.startswith("acme_rover") for p in cache.iterdir())
 
 

@@ -42,13 +42,14 @@ def test_repo_detail_returns_synthesis_and_security_json(tmp_path):
     db.add_repo_if_new(conn, 1, "acme/rover", "u", 1500)
     synth = tmp_path / "acme_rover.synthesis.json"
     synth.write_text(json.dumps({"architecture": "cli tool", "capability_tags": ["ocr"]}), encoding="utf-8")
-    # security JSON is the sibling artifact llm_engine writes next to it
+    # the DB stores the security JSON path explicitly (repositories.security_json_path)
     (tmp_path / "acme_rover.security.json").write_text(
         json.dumps({"findings": [{"severity": "HIGH", "file": "main.py", "line": 2,
                                   "description": "secret", "mitigation": "rotate"}]}),
         encoding="utf-8",
     )
     db.set_status(conn, 1, "DONE", synthesis_path=str(synth),
+                  security_json_path=str(tmp_path / "acme_rover.security.json"),
                   security_report_path=str(tmp_path / "vault.md"))
     conn.close()
 
@@ -118,3 +119,45 @@ def test_sse_delivers_new_event_within_one_second(tmp_path):
         ids = _read_sse_ids(resp, 2)  # seed event + the live one
     assert ids == [1, 2]
     assert time.monotonic() - start < 1.0, "event took over a second to reach the stream"
+
+
+def _report_client(tmp_path, report_path=None):
+    """Client whose vault guard is scoped to tmp_path/vault."""
+    vault = tmp_path / "vault"
+    vault.mkdir(exist_ok=True)
+    conn = _db(tmp_path)
+    db.add_repo_if_new(conn, 1, "acme/rover", "u", 1500)
+    if report_path is not None:
+        db.set_status(conn, 1, "DONE", security_report_path=str(report_path))
+    conn.close()
+    return TestClient(create_app(str(tmp_path / "api.db"), str(vault)))
+
+
+def test_report_endpoint_serves_vault_markdown(tmp_path):
+    (tmp_path / "vault").mkdir()
+    md = tmp_path / "vault" / "acme_rover.md"
+    md.write_text("# acme/rover\n\n## Action items\n\n- [ ] rotate keys\n",
+                  encoding="utf-8")
+    body = _report_client(tmp_path, md).get("/repos/1/report").json()
+    assert body["markdown"].startswith("# acme/rover")
+    assert "rotate keys" in body["markdown"]
+    assert body["path"].endswith("acme_rover.md")
+
+
+def test_report_endpoint_blocks_traversal(tmp_path):
+    secret = tmp_path / "secret.md"
+    secret.write_text("TOP SECRET", encoding="utf-8")
+    sneaky = tmp_path / "vault" / ".." / "secret.md"
+    resp = _report_client(tmp_path, sneaky).get("/repos/1/report")
+    assert resp.status_code == 400
+    assert "TOP SECRET" not in resp.text
+
+
+def test_report_endpoint_404_without_report(tmp_path):
+    client = _report_client(tmp_path, None)
+    assert client.get("/repos/1/report").status_code == 404
+    assert client.get("/repos/999/report").status_code == 404
+    # report path recorded but file already deleted -> 404, not 500
+    gone = tmp_path / "vault" / "deleted.md"
+    client2 = _report_client(tmp_path, gone)
+    assert client2.get("/repos/1/report").status_code == 404

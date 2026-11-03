@@ -128,8 +128,8 @@ def seed(db_path=None, cache_dir=None, vault_dir=None) -> dict:
             cache_dir.mkdir(parents=True, exist_ok=True)
             synth_path = Path(str(base) + ".synthesis.json")
             synth_path.write_text(synth.model_dump_json(indent=2), encoding="utf-8")
-            Path(str(base) + ".security.json").write_text(
-                security.model_dump_json(indent=2), encoding="utf-8")
+            sec_json = Path(str(base) + ".security.json")
+            sec_json.write_text(security.model_dump_json(indent=2), encoding="utf-8")
             report = write_report({"id": spec["id"], "name": spec["name"],
                                    "url": spec["url"], "stars": spec["stars"]},
                                   synth, security, vault_dir=vault_dir)
@@ -146,6 +146,7 @@ def seed(db_path=None, cache_dir=None, vault_dir=None) -> dict:
                 summary["events"] += 1
             db.set_status(conn, spec["id"], "DONE",
                           synthesis_path=str(synth_path),
+                          security_json_path=str(sec_json),
                           security_report_path=str(report))
             summary["analyzed"] += 1
         return summary

@@ -1,7 +1,8 @@
 """Dashboard API (design 5 Phase 5.2): read-only FastAPI over the sentinel DB.
 
 Endpoints: ``/health``, ``/repos``, ``/repos/{id}`` (repo row plus the
-synthesis and security JSON artifacts), ``/events/stream`` (Server-Sent
+synthesis and security JSON artifacts), ``/repos/{id}/report`` (vault
+Markdown, guarded to VAULT_DIR), ``/events/stream`` (Server-Sent
 Events from the events table, resumable via Last-Event-ID). No business
 logic here - workers own the pipeline, this only reports what they wrote.
 """
@@ -32,20 +33,6 @@ def load_json(path: Optional[str]) -> Optional[dict]:
         return None
 
 
-def security_json_path(row: dict) -> Optional[Path]:
-    """Sidecar guess: llm_engine writes <base>.synthesis.json and
-    <base>.security.json next to each other (its service.py), and the DB
-    stores the synthesis path - so the security JSON is its sibling.
-    shortcut: relies on that co-location; move to an explicit DB column if
-    artifacts ever split."""
-    synth = row.get("synthesis_path")
-    if not synth or not synth.endswith(".synthesis.json"):
-        return None
-    p = Path(synth)
-    candidate = p.with_name(p.name[: -len(".synthesis.json")] + ".security.json")
-    return candidate if candidate.is_file() else None
-
-
 def _sse(row: dict) -> str:
     data = {
         "repo_id": row["repo_id"],
@@ -57,9 +44,12 @@ def _sse(row: dict) -> str:
     return f"id: {row['id']}\nevent: {row['type']}\ndata: {json.dumps(data)}\n\n"
 
 
-def create_app(db_path: Optional[str] = None) -> FastAPI:
-    """App factory so tests (and other DB files) get their own read-only view."""
+def create_app(db_path: Optional[str] = None,
+               vault_dir: Optional[str] = None) -> FastAPI:
+    """App factory so tests (and other DB files) get their own read-only view.
+    ``vault_dir`` scopes the report endpoint's traversal guard (design 7)."""
     path = str(db_path or settings.db_path)
+    vault_root = Path(vault_dir or settings.vault_dir).resolve()
     app = FastAPI(title="GitHub Capability & Security Sentinel", docs_url=None, redoc_url=None)
 
     @app.get("/health")
@@ -83,12 +73,35 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
             conn.close()
         if row is None:
             raise HTTPException(status_code=404, detail=f"no repo {repo_id}")
-        sec_path = security_json_path(row)
         return {
             "repo": row,
             "synthesis": load_json(row.get("synthesis_path")),
-            "security": load_json(str(sec_path)) if sec_path else None,
+            "security": load_json(row.get("security_json_path")),
         }
+
+    @app.get("/repos/{repo_id}/report")
+    def repo_report(repo_id: int) -> dict:
+        conn = db.connect(path)
+        try:
+            row = db.get_repo(conn, repo_id)
+        finally:
+            conn.close()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"no repo {repo_id}")
+        md_path = row.get("security_report_path")
+        if not md_path:
+            raise HTTPException(status_code=404,
+                                detail=f"no report yet (status {row['status']})")
+        target = Path(md_path).resolve()
+        # Traversal guard: the DB is trusted-ish but a hostile/pulled row must
+        # never make the API read outside VAULT_DIR (design 7).
+        if not target.is_relative_to(vault_root):
+            raise HTTPException(status_code=400,
+                                detail="report path outside vault dir")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail=f"report file missing: {md_path}")
+        return {"path": str(target),
+                "markdown": target.read_text(encoding="utf-8")}
 
     @app.get("/events/stream")
     def events_stream(request: Request) -> StreamingResponse:

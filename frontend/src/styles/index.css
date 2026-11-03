@@ -1,0 +1,115 @@
+@import 'tailwindcss';
+
+/* Visual identity carried over from websites/cyber (see that repo's styles/index.css).
+   Deviations: no remote fonts, higher body contrast, motion is opt-in. */
+@theme {
+  --color-void: #050505;
+  --color-char: #09090b;
+  --color-panel: #0b0b10;
+  --color-neon: #fce205;
+  --color-cy: #00ffff;
+  --color-crim: #ff003c;
+  --font-display: 'Rajdhani', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', ui-monospace, 'Courier New', monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background-color: #050505;
+    color: #e4e4e7;
+    font-family: var(--font-display);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: #fce205;
+    color: #050505;
+  }
+  :focus-visible {
+    outline: 2px solid #00ffff;
+    outline-offset: 2px;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0a0a0c;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #3f3f46;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #fce205;
+  }
+}
+
+/* chamfered / clipped corners — no soft radii anywhere */
+@utility chamfer {
+  clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+}
+@utility chamfer-sm {
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
+}
+@utility chamfer-xs {
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+
+@layer components {
+  .glow-neon {
+    text-shadow: 0 0 8px rgba(252, 226, 5, 0.45);
+  }
+  .glow-cy {
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+  }
+  .glow-crim {
+    text-shadow: 0 0 8px rgba(255, 0, 60, 0.45);
+  }
+  .hud-grid {
+    background-image:
+      linear-gradient(rgba(252, 226, 5, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(252, 226, 5, 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .scanlines {
+    background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.34) 0 1px, transparent 1px 3px);
+  }
+  .vignette {
+    background: radial-gradient(ellipse at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.62) 100%);
+  }
+  .pulse-dot {
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .ticker-track {
+    animation: marquee 42s linear infinite;
+  }
+}
+
+/* Anything that moves is decoration: disabled for reduced-motion users. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot,
+  .ticker-track {
+    animation: none;
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}

@@ -62,7 +62,7 @@ async def _analyze_one(conn, repo: dict, cache_dir, vault_dir, client=None) -> b
                      {"findings": len(security.findings)})
 
         db.set_status(conn, repo_id, "ANALYZED",
-                      synthesis_path=str(synth_out), security_report_path=str(sec_out))
+                      synthesis_path=str(synth_out), security_json_path=str(sec_out))
         report_path = write_report(repo, synthesis, security, vault_dir=vault_dir)
         db.set_status(conn, repo_id, "DONE", synthesis_path=str(synth_out),
                       security_report_path=str(report_path))

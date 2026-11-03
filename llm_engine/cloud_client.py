@@ -31,11 +31,14 @@ logger = get_logger("llm_engine.cloud")
 DEFAULT_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
 API_KEY_ENV = "OPENCODE_GO_API_KEY"
 CLOUD_MODEL = os.environ.get("SENTINEL_CLOUD_MODEL", "deepseek-v4.1-flash")
-# hardware calibration: deepseek-v4.1-flash is a REASONING model — measured
-# 2026-11-04, an 18k-char dossier chunk with max_tokens=8000 finished with
-# finish_reason=length, 8000 hidden reasoning tokens and ZERO visible content;
-# 16000 gives it headroom for reasoning + answer. Do not lower for speed.
-MAX_TOKENS_PER_CALL = 16_000
+# hardware calibration: deepseek-v4.1-flash is a REASONING model. Measured
+# 2026-11-04: an 18k-char dossier chunk at 8000 -> finish=length with 8000
+# hidden reasoning tokens and ZERO visible content; 16000 passed once but a
+# later chunk still burned it all (empty completion, FAILED_AUDIT). Reasoning
+# length scales with input size; cloud reasoning costs ~fractions of a cent,
+# so the safe ceiling is generous. If a pass still returns empty at this cap,
+# the next lever is smaller dossier groups in synthesis, not more tokens.
+MAX_TOKENS_PER_CALL = 32_000
 # same policy the user set for local: answer time uncapped, connect bounded
 REQUEST_TIMEOUT = httpx.Timeout(None, connect=30.0)
 # stable per-process session id — Go asks for one to optimize routing/caching

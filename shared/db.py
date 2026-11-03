@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     status               TEXT NOT NULL,
     synthesis_path       TEXT,
     security_report_path TEXT,
+    security_json_path   TEXT,
     error                TEXT,
     timestamp            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
@@ -51,6 +52,9 @@ def connect(db_path) -> sqlite3.Connection:
 
 def init_db(conn) -> None:
     conn.executescript(_SCHEMA)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(repositories)")}
+    if "security_json_path" not in cols:  # pre-v1.2 databases: add the column in place
+        conn.execute("ALTER TABLE repositories ADD COLUMN security_json_path TEXT")
     conn.commit()
 
 
@@ -108,14 +112,16 @@ def reclaim_stale(conn, from_status: str, to_status: str, older_than_sec: int = 
     return len(rows)
 
 
-def set_status(conn, repo_id: int, status: str, *, error=None, synthesis_path=None, security_report_path=None) -> None:
+def set_status(conn, repo_id: int, status: str, *, error=None, synthesis_path=None,
+               security_report_path=None, security_json_path=None) -> None:
     """Update status; optional fields are merged in (None keeps the previous value)."""
     _check_status(status)
     conn.execute(
         "UPDATE repositories SET status = ?, timestamp = strftime('%Y-%m-%dT%H:%M:%fZ','now'),"
         " error = COALESCE(?, error), synthesis_path = COALESCE(?, synthesis_path),"
-        " security_report_path = COALESCE(?, security_report_path) WHERE id = ?",
-        (status, error, synthesis_path, security_report_path, repo_id),
+        " security_report_path = COALESCE(?, security_report_path),"
+        " security_json_path = COALESCE(?, security_json_path) WHERE id = ?",
+        (status, error, synthesis_path, security_report_path, security_json_path, repo_id),
     )
     conn.commit()
 

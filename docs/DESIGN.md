@@ -111,3 +111,4 @@ To prevent cascading failures (e.g., if GitHub rate-limits or a massive repo cra
 
 - v1.0 - initial design
 - v1.1 - AST parser downgraded to an optional component (`AST_SUMMARY` flag, default on); raw-text entry points are the baseline path
+- v1.2 - security JSON path stored explicitly in `repositories.security_json_path` (auto-migrated); the dashboard API reads the column instead of guessing the `.security.json` sibling, and the HUD dossier/vulnerability panels live-refresh on a 2s timer

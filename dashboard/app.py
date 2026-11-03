@@ -4,7 +4,9 @@ Three areas: left = live event radar (SSE via background thread, DB-polling
 fallback from dashboard/feed.py, refreshed by a 1s fragment timer);
 center = Marketing-vs-Reality split card + capability tag cloud for the
 selected repo; right = vulnerability table by severity with mitigation
-action items. All DB reads are read-only.
+action items. Center+right re-read the DB and artifact JSONs on a 2s
+fragment timer, so a finished analysis shows up without a page reload.
+All DB reads are read-only.
 
 Env overrides: SENTINEL_DB_PATH, SENTINEL_API_URL, SENTINEL_FEED=off
 (disables the SSE thread and reads events straight from the DB - used by
@@ -18,7 +20,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from dashboard.api import load_json, security_json_path
+from dashboard.api import load_json
 from dashboard.feed import FeedState, start_feed
 from shared import db
 from shared.config import settings
@@ -127,76 +129,81 @@ def event_radar() -> None:
 
 event_radar()
 
-# ---------- center + right need a repo ----------
-if not repos:
+# ---------- center + right: one 2s fragment so finished analyses appear live ----------
+@st.fragment(run_every="2s")
+def dossier() -> None:
+    repos = _load_repos(path)
+    if not repos:
+        with col_mid:
+            st.subheader("Repo dossier")
+            st.info("No repos in the queue yet - nothing to show. "
+                    "Ingestion runs every few minutes; or seed demo data with `python scripts/seed_demo.py`.")
+        with col_right:
+            st.subheader("Vulnerabilities")
+            st.info("No repos analyzed yet.")
+        return
+
     with col_mid:
         st.subheader("Repo dossier")
-        st.info("No repos in the queue yet - nothing to show. "
-                "Ingestion runs every few minutes; or seed demo data with `python scripts/seed_demo.py`.")
+        analyzed_names = {r["name"] for r in repos if load_json(r.get("synthesis_path"))}
+        options = [r["name"] for r in repos]
+        default_idx = next((i for i, n in enumerate(options) if n in analyzed_names), 0)
+        choice = st.selectbox("Repository", options, index=default_idx)
+        repo = next(r for r in repos if r["name"] == choice)
+        if repo["name"] not in analyzed_names:
+            st.info(f"`{repo['name']}` is {repo['status']} - dossier appears once synthesis finishes.")
+
+        synthesis = load_json(repo.get("synthesis_path"))
+        if synthesis:
+            claims = synthesis.get("marketing_claims", [])
+            reality = synthesis.get("verified_reality", [])
+            with st.container(border=True):
+                st.markdown("**Marketing vs Reality**")
+                mc, rc = st.columns(2)
+                with mc:
+                    st.caption("README promises")
+                    for c in claims or ["(none listed)"]:
+                        st.markdown(f"- {c}")
+                with rc:
+                    st.caption("Code delivers")
+                    for v in reality or ["(none verified)"]:
+                        st.markdown(f"- {v}")
+            with st.container(border=True):
+                st.markdown("**Capability tags**")
+                # tag "cloud": font-size by how many analyzed repos carry the tag
+                freq: dict[str, int] = {}
+                for r in repos:
+                    s = load_json(r.get("synthesis_path")) or {}
+                    for t in s.get("capability_tags", []):
+                        freq[t] = freq.get(t, 0) + 1
+                html = []
+                for t in sorted(synthesis.get("capability_tags", []), key=lambda t: -freq[t]):
+                    size = 13 + 4 * min(freq.get(t, 1), 4)
+                    html.append(f"<span style='font-size:{size}px;margin-right:12px'>{t}</span>")
+                st.markdown(" ".join(html) or "(no tags)", unsafe_allow_html=True)
+
     with col_right:
         st.subheader("Vulnerabilities")
-        st.info("No repos analyzed yet.")
-    st.stop()
-
-with col_mid:
-    st.subheader("Repo dossier")
-    analyzed_names = {r["name"] for r in repos if load_json(r.get("synthesis_path"))}
-    options = [r["name"] for r in repos]
-    default_idx = next((i for i, n in enumerate(options) if n in analyzed_names), 0)
-    choice = st.selectbox("Repository", options, index=default_idx)
-    repo = next(r for r in repos if r["name"] == choice)
-    if repo["name"] not in analyzed_names:
-        st.info(f"`{repo['name']}` is {repo['status']} - dossier appears once synthesis finishes.")
-
-    synthesis = load_json(repo.get("synthesis_path"))
-    if synthesis:
-        claims = synthesis.get("marketing_claims", [])
-        reality = synthesis.get("verified_reality", [])
-        with st.container(border=True):
-            st.markdown("**Marketing vs Reality**")
-            mc, rc = st.columns(2)
-            with mc:
-                st.caption("README promises")
-                for c in claims or ["(none listed)"]:
-                    st.markdown(f"- {c}")
-            with rc:
-                st.caption("Code delivers")
-                for v in reality or ["(none verified)"]:
-                    st.markdown(f"- {v}")
-        with st.container(border=True):
-            st.markdown("**Capability tags**")
-            # tag "cloud": font-size by how many analyzed repos carry the tag
-            freq: dict[str, int] = {}
-            for r in repos:
-                s = load_json(r.get("synthesis_path")) or {}
-                for t in s.get("capability_tags", []):
-                    freq[t] = freq.get(t, 0) + 1
-            html = []
-            for t in sorted(synthesis.get("capability_tags", []), key=lambda t: -freq[t]):
-                size = 13 + 4 * min(freq.get(t, 1), 4)
-                html.append(f"<span style='font-size:{size}px;margin-right:12px'>{t}</span>")
-            st.markdown(" ".join(html) or "(no tags)", unsafe_allow_html=True)
-
-with col_right:
-    st.subheader("Vulnerabilities")
-    sec_path = security_json_path(repo)
-    security = load_json(str(sec_path)) if sec_path else None
-    if security is None:
-        st.info("No security results yet for this repo.")
-    else:
-        findings = security.get("findings", [])
-        if not findings:
-            st.success("No vulnerabilities found.")
+        security = load_json(repo.get("security_json_path"))
+        if security is None:
+            st.info("No security results yet for this repo.")
         else:
-            counts = {s: sum(1 for f in findings if f["severity"] == s) for s in SEVERITY_ORDER}
-            st.markdown(" ".join(f":{SEVERITY_DOT[s]}[{counts[s]}]" for s in SEVERITY_ORDER if counts[s]))
-            for f in sorted(findings, key=lambda f: SEVERITY_ORDER.index(f["severity"])):
-                with st.container(border=True):
-                    st.markdown(f":{SEVERITY_DOT[f['severity']]} **{f['severity']}** - "
-                                f"`{f['file']}:{f['line']}`")
-                    st.markdown(f["description"])
-                    st.caption(f"**Mitigation:** {f['mitigation']}")
-            actions = list(dict.fromkeys(f["mitigation"] for f in findings if f["mitigation"]))
-            if actions:
-                st.markdown("**Action items**")
-                st.markdown("\n".join(f"- [ ] {a}" for a in actions))
+            findings = security.get("findings", [])
+            if not findings:
+                st.success("No vulnerabilities found.")
+            else:
+                counts = {s: sum(1 for f in findings if f["severity"] == s) for s in SEVERITY_ORDER}
+                st.markdown(" ".join(f":{SEVERITY_DOT[s]}[{counts[s]}]" for s in SEVERITY_ORDER if counts[s]))
+                for f in sorted(findings, key=lambda f: SEVERITY_ORDER.index(f["severity"])):
+                    with st.container(border=True):
+                        st.markdown(f":{SEVERITY_DOT[f['severity']]} **{f['severity']}** - "
+                                    f"`{f['file']}:{f['line']}`")
+                        st.markdown(f["description"])
+                        st.caption(f"**Mitigation:** {f['mitigation']}")
+                actions = list(dict.fromkeys(f["mitigation"] for f in findings if f["mitigation"]))
+                if actions:
+                    st.markdown("**Action items**")
+                    st.markdown("\n".join(f"- [ ] {a}" for a in actions))
+
+
+dossier()

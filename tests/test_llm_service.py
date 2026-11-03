@@ -82,7 +82,9 @@ def test_success_sets_done_with_vault_report(tmp_path, monkeypatch):
     assert report_file == vault / "acme__rover.md"
     md = report_file.read_text(encoding="utf-8")
     assert md.startswith("# acme/rover") and "## Vulnerability matrix" in md
-    assert service._cache_path("acme/rover", service.SECURITY_SUFFIX, cache).exists()
+    sec_json = Path(repo["security_json_path"])
+    assert sec_json == service._cache_path("acme/rover", service.SECURITY_SUFFIX, cache)
+    assert sec_json.is_file()
     events = [e["type"] for e in db.list_events_since(conn, 0) if e["repo_id"] == 1]
     assert events == ["ANALYSIS_START", "SYNTHESIS_DONE", "SECURITY_DONE", "REPORTED"]
     conn.close()

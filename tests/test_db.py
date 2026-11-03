@@ -104,6 +104,10 @@ def test_set_status_fields_and_validation(tmp_path):
     r = db.get_repo(conn, 1)
     assert r["status"] == "DONE" and r["synthesis_path"] == "vault/a-b.md"
 
+    db.set_status(conn, 1, "ANALYZED", security_json_path="cache/a_b.security.json")
+    r = db.get_repo(conn, 1)  # merge semantics: previous paths survive
+    assert r["security_json_path"] == "cache/a_b.security.json" and r["synthesis_path"] == "vault/a-b.md"
+
     with pytest.raises(ValueError):
         db.set_status(conn, 1, "NOPE")
     with pytest.raises(ValueError):
@@ -128,3 +132,20 @@ def test_reclaim_stale_hands_back_only_abandoned_rows(tmp_path):
     assert db.claim_next(conn, "QUEUED", "CLONING")["id"] == 1  # re-runnable
     with pytest.raises(ValueError):
         db.reclaim_stale(conn, "BOGUS", "QUEUED")
+
+
+def test_init_db_migrates_legacy_database(tmp_path):
+    conn = db.connect(tmp_path / "legacy.db")
+    conn.executescript(  # pre-v1.2 schema: no security_json_path column
+        "CREATE TABLE repositories ("
+        " id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, url TEXT NOT NULL,"
+        " stars INTEGER NOT NULL, status TEXT NOT NULL, synthesis_path TEXT,"
+        " security_report_path TEXT, error TEXT,"
+        " timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));")
+    conn.execute("INSERT INTO repositories (id,name,url,stars,status) VALUES (1,'a','u',1,'QUEUED')")
+    conn.commit()
+    db.init_db(conn)
+    assert db.get_repo(conn, 1)["security_json_path"] is None  # column added in place
+    db.set_status(conn, 1, "DONE", security_json_path="x.security.json")
+    assert db.get_repo(conn, 1)["security_json_path"] == "x.security.json"
+    conn.close()
