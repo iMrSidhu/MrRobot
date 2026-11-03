@@ -10,7 +10,7 @@ Prompt file per step lives at `prompts/<step>-<slug>.md` (created when the step 
 | 04 | GitHub client | §5 Phase 2 (2.1) | done | restore/04 |
 | 05 | Ingestion service | §5 Phase 2 (2.1–2.3), §3 (1) | done | restore/05 |
 | 06 | Safe clone | §5 Phase 3 (3.1), §3 (2) | done | restore/06 |
-| 07 | File filter | §5 Phase 3 (3.2) | todo | — |
+| 07 | File filter | §5 Phase 3 (3.2) | done | restore/07 |
 | 08 | Tree & chunker | §5 Phase 3 (3.3) | todo | — |
 | 09 | Processor service | §5 Phase 3, §2 (isolation) | todo | — |
 | 10 | LLM client | §4, §2 (VRAM semaphore) | todo | — |

@@ -1,10 +1,11 @@
 # PROGRESS
 
 ## Current step
-Step 06 done. Next: step 07 — File filter (see prompts/INDEX.md).
+Step 07 done. Next: step 08 — Tree & chunker (see prompts/INDEX.md).
 
 ## Log
 <!-- one entry per finished step, newest first: `05 — what was done — restore/05` -->
+- 07 — processor/filter.py filter_repo/keep_file: allow-list LANGUAGE_BY_EXT + README; deny DENY_DIRS/LOCKFILE_NAMES/IMAGE+BINARY_EXTS/MINIFIED_SUFFIXES/MAX_FILE_SIZE=200KB/NUL-byte sniff; skips symlinks; dir-deny matched relative to repo root; returns sorted KeptFile(path,size,language); editable constants at top; 10 tests (one per rule) on synthetic trees — restore/07
 - 06 — processor/clone.py clone_repo: depth-1 --no-local clone with 300s timeout into sanitized subdirs of REPO_CACHE_DIR (GIT_TERMINAL_PROMPT=0, GIT_LFS_SKIP_SMUDGE=1, core.hooksPath=/dev/null, core.symlinks=false), immediate .git wipe, cleanup(); failure/timeout leave no partial dirs; 8 tests on local temp repos (no network) incl. malicious-hook-does-not-run — restore/06
 - 05 — ingestion/service.py run_once/run_forever (search -> dedupe -> QUEUED insert + DISCOVERED events; RateLimited writes RATE_LIMIT event, sleeps requested seconds, continues; any API error -> ERROR event, never crashes), python -m ingestion [--once] via __main__; 5 tests with fake httpx client — restore/05
 - 04 — ingestion/github_client.py: async search_repositories ('<kw> stars:>N', sort=stars, paginated, cross-keyword dedupe, optional token), RateLimited(wait_seconds) from Retry-After / X-RateLimit-Reset / remaining=0; 8 httpx-MockTransport tests, no live network — restore/04
@@ -14,6 +15,7 @@ Step 06 done. Next: step 07 — File filter (see prompts/INDEX.md).
 - 00 — workflow scaffolding (docs, protocol, scripts, prompts index) — restore/00
 
 ## Open questions
+- File filter: `.txt` is NOT in the source allow-list, so `requirements.txt`/`LICENSE` are dropped (design §3.2 says keep "core source + README" only). If Step 08's tree/chunker wants dependency manifests, add them to LANGUAGE_BY_EXT or a KEEP_NAMES set.
 - claim_next order: DESIGN.md doesn't specify queue priority → chose highest stars first (`ORDER BY stars DESC, id`); trivial to switch to FIFO.
 - DESIGN.md gives no defaults for DB_PATH / POLL_INTERVAL_SEC / LLM_TIMEOUT_SEC → chose `sentinel.db`, 300s, 120s (simplest).
 - REPO_CACHE_DIR default `/tmp/repo_cache` (design §3.1) resolves to `<current-drive>:\tmp\repo_cache` on Windows; clone_repo mkdirs parents so it works as-is — override REPO_CACHE_DIR in .env if a specific drive is wanted (revisit only if it bites).
