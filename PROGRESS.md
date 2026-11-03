@@ -1,10 +1,11 @@
 # PROGRESS
 
 ## Current step
-Step 11 done. Next: step 12 — security worker (see prompts/INDEX.md).
+Step 12 done. Next: step 13 — analysis service (see prompts/INDEX.md).
 
 ## Log
 <!-- one entry per finished step, newest first: `05 — what was done — restore/05` -->
+- 12 — llm_engine/prompts/security.md + llm_engine/security.py run_security(repo, root, client=None)->SecurityResult: deterministic SECRET_PATTERNS sweep (known token prefixes, api_key/secret/token/password assignments, private-key blocks, creds-in-URL) over all small text files, then Model B generate_json audit of top security_candidate_files (budget/2 chars, traversal-guarded); validate_findings drops files not under root / lines out of range; merge identical (file,line,description), sort CRITICAL->LOW; 4 fake-client tests incl. planted key survives empty LLM reply, hallucinated line 9999 + ghost.py dropped — restore/12
 - 11 — llm_engine/prompts/synthesis.md (file-based Model A template, edit w/o code) + llm_engine/synthesis.py run_synthesis(processed_repo)->SynthesisResult: per-slot budget alloc = context_budget*4/3 chars (floor 500); oversized tree/readme/code slots compressed via chunk-by-chunk PARTIAL DOSSIER generate passes then merged into the final generate_json call; small repos = exactly 1 call; 3 fake-transport tests (single-call validation, empty slots, oversized summarize-then-merge) — restore/11
 - 10 — llm_engine/client.py: async Ollama wrapper on /api/generate (httpx, no ollama pkg), process-wide asyncio.Semaphore(1) VRAM lock (§2 principle 3); generate() retries transient errors once, persistent timeout -> LLMTimeout from LLM_TIMEOUT_SEC; generate_json(model,prompt,schema) appends schema reminder, clean_json_text strips code fences/prose + fixes trailing commas, pydantic-validates, retries once with STRICT reminder; 8 mocked-transport tests incl. acceptance "two concurrent calls serialize" (async handler yields, max_active==1) — restore/10
 - 09 — processor/service.py run_once/run_forever (sync loop — all work is blocking IO): claim QUEUED->CLONING, clone_repo, process_repo, save ProcessedRepo JSON at <cache_dir>/<sanitized>.processed.json (helper processed_json_path), set PROCESSED, always cleanup clone; ANY exception -> FAILED_AUDIT status+error+event inner-guarded, loop never stops; python -m processor [--once]; 6 tests w/ fake clone (success, failure, failure-then-continue, chunker-crash cleanup, empty, --once) — restore/09
@@ -25,6 +26,7 @@ Step 11 done. Next: step 12 — security worker (see prompts/INDEX.md).
 - DESIGN.md gives no defaults for DB_PATH / POLL_INTERVAL_SEC / LLM_TIMEOUT_SEC → chose `sentinel.db`, 300s, 120s (simplest).
 - REPO_CACHE_DIR default `/tmp/repo_cache` (design §3.1) resolves to `<current-drive>:\tmp\repo_cache` on Windows; clone_repo mkdirs parents so it works as-is — override REPO_CACHE_DIR in .env if a specific drive is wanted (revisit only if it bites).
 - Ollama server is up on this machine but `qwen2.5-coder:3b` / `phi3:mini` are not pulled (~4.5GB download) — did not auto-pull in step 02 (not in task scope); run `python scripts/check_ollama.py --pull` when ready.
+- run_security takes a `root` dir argument (task text said run_security(processed_repo)): file-existence/line validation and the regex sweep need the repo files ON DISK, but the processor wipes the clone at PROCESSED (step 09) and ProcessedRepo JSON stores no file bodies. Consequence for step 13: the analysis service must clone_repo() again before the security pass (synthesis alone does not need files).
 
 ## Notes for next session
 - Run only the current step; finish with `scripts/checkpoint.sh <step-id> '<message>'` (AGENT_PROTOCOL.md).
