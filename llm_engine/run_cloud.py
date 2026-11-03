@@ -32,11 +32,13 @@ def main(argv=None) -> int:
                     "needs OPENCODE_GO_API_KEY in .env")
     parser.add_argument("--once", action="store_true",
                         help="drain everything PROCESSED, then exit")
+    parser.add_argument("--limit", type=int, default=0,
+                        help="with --once: analyze at most N repos (star order), then exit")
     args = parser.parse_args(argv)
     use_cloud()
     print(f"cloud model: {cloud_client.CLOUD_MODEL}")
     if args.once:
-        service.run_once()
+        service.run_once(limit=args.limit)
     else:
         service.run_forever()
     return 0

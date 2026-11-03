@@ -85,10 +85,12 @@ async def _analyze_one(conn, repo: dict, cache_dir, vault_dir, client=None) -> b
 def run_once(db_path: Path | str | None = None,
              cache_dir: Path | str | None = None,
              vault_dir: Path | str | None = None,
-             client=None) -> int:
+             client=None,
+             limit: int = 0) -> int:
     """Drain everything currently PROCESSED; returns the number analyzed OK.
     `client` is injected into the LLM calls (tests run the whole pipeline
-    against a fake Ollama transport)."""
+    against a fake Ollama transport). `limit` > 0 caps how many repos are
+    claimed this pass (star order first), for budget/time-bounded runs."""
     conn = db.connect(Path(db_path or settings.db_path))
     db.init_db(conn)
     # crashed-worker recovery (shared/db.reclaim_stale): rows a killed worker
@@ -96,13 +98,15 @@ def run_once(db_path: Path | str | None = None,
     db.reclaim_stale(conn, "ANALYZING", "PROCESSED")
     db.reclaim_stale(conn, "ANALYZED", "PROCESSED")
     analyzed = 0
+    claimed = 0
 
     async def _drain() -> None:
-        nonlocal analyzed
-        while True:
+        nonlocal analyzed, claimed
+        while limit <= 0 or claimed < limit:
             repo = db.claim_next(conn, "PROCESSED", "ANALYZING")
             if repo is None:
                 break
+            claimed += 1
             analyzed += await _analyze_one(conn, repo, cache_dir, vault_dir, client)
 
     asyncio.run(_drain())

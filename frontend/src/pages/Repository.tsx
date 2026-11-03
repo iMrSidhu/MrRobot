@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { AlertTriangle, BookOpen, Download, FolderGit2, ScrollText, ShieldAlert, Tags } from 'lucide-react';
-import { fetchRepos, fetchReport } from '../api/client';
+import { AlertTriangle, BookOpen, Download, FolderGit2, ScrollText, ShieldAlert, Tags, TrendingUp } from 'lucide-react';
+import { fetchRepos, fetchReport, fetchStars } from '../api/client';
 import { REFRESH_EVENT_TYPES } from '../api/events';
 import type { SentinelEvent } from '../api/events';
 import type { Dossier, Finding, Section } from '../api/types';
+import LineChart from '../components/LineChart';
 import Panel from '../components/Panel';
 import { useDossier } from '../hooks/useDossier';
 import { useResource } from '../hooks/useResource';
@@ -20,6 +21,19 @@ const SEVERITY_STYLES: Record<string, string> = {
   LOW: 'border-zinc-500 text-zinc-300',
   UNKNOWN: 'border-zinc-700 text-zinc-400',
 };
+
+const SEVERITY_BARS: Record<string, string> = {
+  CRITICAL: 'bg-crim',
+  HIGH: 'bg-orange-500',
+  MEDIUM: 'bg-neon',
+  LOW: 'bg-zinc-500',
+  UNKNOWN: 'bg-zinc-700',
+};
+
+const BAR_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'] as const;
+
+const findingLocation = (finding: Finding) =>
+  finding.file ? `${finding.file}${finding.line !== null ? `:${finding.line}` : ''}` : 'location not provided';
 
 function SeverityChip({ severity }: { severity: string }) {
   return (
@@ -45,17 +59,52 @@ function SectionNotice({ section }: { section: Extract<Section<unknown>, { state
   );
 }
 
-function StringList({ items, empty }: { items: string[]; empty: string }) {
+function StringList({ items, empty, limit = 5 }: { items: string[]; empty: string; limit?: number }) {
+  const [expanded, setExpanded] = useState(false);
   if (items.length === 0) return <p className="font-mono text-[10px] text-zinc-500">{empty}</p>;
+  const visible = expanded ? items : items.slice(0, limit);
+  const hidden = items.length - visible.length;
   return (
-    <ol className="space-y-1.5">
-      {items.map((item, index) => (
-        <li key={`${index}-${item.slice(0, 24)}`} className="flex gap-2 font-mono text-[11px] leading-relaxed text-zinc-300">
-          <span className="w-6 shrink-0 text-right text-zinc-600">{String(index + 1).padStart(2, '0')}</span>
-          <span>{item}</span>
-        </li>
-      ))}
-    </ol>
+    <div className="space-y-1.5">
+      <ol className="space-y-1.5">
+        {visible.map((item, index) => (
+          <li key={`${index}-${item.slice(0, 24)}`} className="flex gap-2 font-mono text-[11px] leading-relaxed text-zinc-300">
+            <span className="w-6 shrink-0 text-right text-zinc-600">{String(index + 1).padStart(2, '0')}</span>
+            <span className="line-clamp-2">{item}</span>
+          </li>
+        ))}
+      </ol>
+      {(hidden > 0 || expanded) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="font-mono text-[9px] tracking-[0.14em] text-zinc-500 hover:text-neon"
+        >
+          {expanded ? 'COLLAPSE' : `+${hidden} MORE`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Long prose (architecture summaries) clamped to a few lines with an expand toggle. */
+function ClampText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="space-y-1">
+      <p className={`whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-zinc-300 ${expanded ? '' : 'line-clamp-4'}`}>
+        {text}
+      </p>
+      {text.length > 320 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="font-mono text-[9px] tracking-[0.14em] text-zinc-500 hover:text-cy"
+        >
+          {expanded ? 'COLLAPSE' : 'EXPAND'}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -64,7 +113,7 @@ export default function Repository({ events }: { events: SentinelEvent[] }) {
   const repoId = repoParam !== null && /^\d+$/.test(repoParam) ? Number(repoParam) : null;
 
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<Filter>('ALL');
+  const [filter, setFilter] = useState<Filter | null>(null);
   const [page, setPage] = useState(1);
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -81,6 +130,10 @@ export default function Repository({ events }: { events: SentinelEvent[] }) {
   const visibleRepos = repos.status === 'ready' ? repos.data.filter((repo) => repo.name.toLowerCase().includes(needle)) : [];
 
   const mapped = dossier.status === 'ready' && dossier.data?.ok ? dossier.data.value : null;
+
+  const stars = useResource(`stars:${repoId ?? 0}:${revision}`, (signal) =>
+    repoId === null ? Promise.resolve(null) : fetchStars(repoId, signal),
+  );
 
   async function downloadReport(repo: Dossier['repo']) {
     setReportBusy(true);
@@ -101,12 +154,19 @@ export default function Repository({ events }: { events: SentinelEvent[] }) {
   }
 
   const findings: Finding[] = mapped?.security.state === 'available' ? mapped.security.value.findings : [];
-  const matching = filter === 'ALL' ? findings : findings.filter((finding) => finding.severity === filter);
+  const matching =
+    filter === null ? [] : filter === 'ALL' ? findings : findings.filter((finding) => finding.severity === filter);
   const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const pageRows = matching.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const severityCount = (severity: string) => findings.filter((finding) => finding.severity === severity).length;
+
+  /** Headline view: 4 critical + 1 medium, first as returned by the API. */
+  const spotlight = [
+    ...findings.filter((finding) => finding.severity === 'CRITICAL').slice(0, 4),
+    ...findings.filter((finding) => finding.severity === 'MEDIUM').slice(0, 1),
+  ];
 
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
@@ -244,12 +304,38 @@ export default function Repository({ events }: { events: SentinelEvent[] }) {
               )}
             </Panel>
 
+            <Panel title="Star Growth" code="STARS-01" icon={TrendingUp} accent="#FCE205">
+              {stars.status === 'ready' && stars.data ? (
+                <div className="space-y-2">
+                  <div className="flex items-baseline justify-between font-mono text-[11px]">
+                    <span className="text-zinc-300">{stars.data.current?.toLocaleString() ?? '—'} stars</span>
+                    {stars.data.samples.length >= 2 && (
+                      <span className="text-[10px] text-zinc-500">
+                        {(() => {
+                          const first = stars.data.samples[0];
+                          const last = stars.data.samples[stars.data.samples.length - 1];
+                          const delta = (last?.v ?? 0) - (first?.v ?? 0);
+                          return `${delta >= 0 ? '+' : ''}${delta.toLocaleString()} over ${stars.data.samples.length} samples`;
+                        })()}
+                      </span>
+                    )}
+                  </div>
+                  <LineChart
+                    points={stars.data.samples}
+                    emptyLabel={stars.data.samples.length === 1 ? 'Collecting star history.' : 'No star samples yet.'}
+                  />
+                </div>
+              ) : (
+                <p className="font-mono text-[10px] text-zinc-500">
+                  {stars.status === 'error' ? `Star history unavailable — ${stars.error}` : 'Loading star history.'}
+                </p>
+              )}
+            </Panel>
+
             <Panel title="Architecture" code="SYNTH-01" icon={BookOpen} accent="#00FFFF">
               {mapped.synthesis.state === 'available' ? (
                 mapped.synthesis.value.architecture ? (
-                  <p className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-zinc-300">
-                    {mapped.synthesis.value.architecture}
-                  </p>
+                  <ClampText text={mapped.synthesis.value.architecture} />
                 ) : (
                   <p className="font-mono text-[10px] text-zinc-500">No architecture summary recorded.</p>
                 )
@@ -268,9 +354,6 @@ export default function Repository({ events }: { events: SentinelEvent[] }) {
                   action={<span className="font-mono text-[9px] tracking-[0.14em] text-zinc-500">UNPAIRED IN V1</span>}
                 >
                   <StringList items={mapped.synthesis.value.claims} empty="No claims recorded." />
-                  <p className="mt-3 border-t border-zinc-800 pt-2 font-mono text-[9px] leading-relaxed text-zinc-500">
-                    v1 does not pair claims with verified evidence, so these are listed as written, not as confirmed statements.
-                  </p>
                 </Panel>
 
                 <Panel title="Verified Reality" code="SYNTH-03" icon={AlertTriangle} accent="#71717A">
@@ -321,12 +404,73 @@ export default function Repository({ events }: { events: SentinelEvent[] }) {
                     </p>
                   )}
 
-                  <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Filter findings by severity">
+                  <div className="mb-3">
+                    <div className="mb-1 flex items-baseline justify-between">
+                      <span className="font-mono text-[9px] tracking-[0.2em] text-zinc-500">SEVERITY DISTRIBUTION</span>
+                      <span className="font-mono text-[9px] text-zinc-500">100% of {findings.length}</span>
+                    </div>
+                    <div
+                      role="img"
+                      aria-label={BAR_ORDER.map((severity) => `${severity} ${severityCount(severity)}`).join(', ')}
+                      className="chamfer-xs flex h-2.5 w-full overflow-hidden border border-zinc-800 bg-black/40"
+                    >
+                      {BAR_ORDER.map((severity) => {
+                        const count = severityCount(severity);
+                        if (count === 0) return null;
+                        return (
+                          <div
+                            key={severity}
+                            className={SEVERITY_BARS[severity]}
+                            style={{ width: `${(count / findings.length) * 100}%` }}
+                            title={`${severity}: ${count}`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[9px] text-zinc-400">
+                      {BAR_ORDER.map((severity) => (
+                        <span key={severity} className="inline-flex items-center gap-1">
+                          <span className={`inline-block h-2 w-2 ${SEVERITY_BARS[severity]}`} aria-hidden="true" />
+                          {severity} {severityCount(severity)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-3">
+                    {spotlight.length === 0 ? (
+                      <p className="font-mono text-[10px] text-zinc-500">No CRITICAL or MEDIUM findings in this artifact.</p>
+                    ) : (
+                      <ol className="space-y-1.5">
+                        {spotlight.map((finding, index) => (
+                          <li
+                            key={`${index}-${finding.description.slice(0, 20)}`}
+                            className="grid grid-cols-[76px_1fr] items-start gap-2 border-l-2 border-zinc-800 pl-2"
+                          >
+                            <SeverityChip severity={finding.severity} />
+                            <div className="min-w-0">
+                              <p className="line-clamp-2 font-mono text-[10px] leading-relaxed text-zinc-200">{finding.description}</p>
+                              <p className="truncate font-mono text-[9px] text-zinc-500" title={findingLocation(finding)}>
+                                {findingLocation(finding)}
+                                {finding.mitigation ? ` — ${finding.mitigation}` : ''}
+                              </p>
+                            </div>
+                          </li>
+                        ))}
+                        {severityCount('MEDIUM') === 0 && (
+                          <li className="pl-2 font-mono text-[9px] text-zinc-600">No MEDIUM findings in this artifact.</li>
+                        )}
+                      </ol>
+                    )}
+                  </div>
+
+                  <div className="mb-2 flex flex-wrap gap-1 border-t border-zinc-800 pt-2" role="tablist" aria-label="Findings by severity">
                     {FILTERS.map((value) => (
                       <button
                         key={value}
                         type="button"
-                        aria-pressed={filter === value}
+                        role="tab"
+                        aria-selected={filter === value}
                         onClick={() => {
                           setFilter(value);
                           setPage(1);
@@ -335,12 +479,14 @@ export default function Repository({ events }: { events: SentinelEvent[] }) {
                           filter === value ? 'border-cy bg-cy/10 text-cy' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'
                         }`}
                       >
-                        {value}
+                        {value} {value === 'ALL' ? findings.length : severityCount(value)}
                       </button>
                     ))}
                   </div>
 
-                  {matching.length === 0 ? (
+                  {filter === null ? (
+                    <p className="font-mono text-[10px] text-zinc-600">Select a severity above to list those findings.</p>
+                  ) : matching.length === 0 ? (
                     <p className="font-mono text-[10px] text-zinc-500">No findings match this filter.</p>
                   ) : (
                     <div className="overflow-x-auto">

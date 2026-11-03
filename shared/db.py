@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     synthesis_path       TEXT,
     security_report_path TEXT,
     security_json_path   TEXT,
+    adoption_json_path   TEXT,
     error                TEXT,
     timestamp            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
@@ -30,6 +31,12 @@ CREATE TABLE IF NOT EXISTS events (
     message      TEXT NOT NULL,
     payload_json TEXT,
     timestamp    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS star_samples (
+    repo_id    INTEGER NOT NULL,
+    stars      INTEGER NOT NULL,
+    sampled_at TEXT NOT NULL,
+    PRIMARY KEY (repo_id, sampled_at)
 );
 """
 
@@ -55,6 +62,8 @@ def init_db(conn) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(repositories)")}
     if "security_json_path" not in cols:  # pre-v1.2 databases: add the column in place
         conn.execute("ALTER TABLE repositories ADD COLUMN security_json_path TEXT")
+    if "adoption_json_path" not in cols:  # pre-v2 databases: requested adoption artifacts
+        conn.execute("ALTER TABLE repositories ADD COLUMN adoption_json_path TEXT")
     conn.commit()
 
 
@@ -124,6 +133,50 @@ def set_status(conn, repo_id: int, status: str, *, error=None, synthesis_path=No
         (status, error, synthesis_path, security_report_path, security_json_path, repo_id),
     )
     conn.commit()
+
+
+def set_adoption_path(conn, repo_id: int, path: str) -> None:
+    """Record a requested adoption artifact without touching the pipeline status."""
+    conn.execute("UPDATE repositories SET adoption_json_path = ? WHERE id = ?", (path, repo_id))
+    conn.commit()
+
+
+def record_star_sample(conn, repo_id: int, stars: int) -> None:
+    """One star observation per repo per pass; also refreshes the current count."""
+    conn.execute(
+        "INSERT OR REPLACE INTO star_samples (repo_id, stars, sampled_at)"
+        " VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+        (repo_id, int(stars)),
+    )
+    conn.execute("UPDATE repositories SET stars = ? WHERE id = ?", (int(stars), repo_id))
+    conn.commit()
+
+
+def list_star_samples(conn, repo_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT stars, sampled_at FROM star_samples WHERE repo_id = ? ORDER BY sampled_at",
+        (repo_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def repos_due_for_star_sample(conn, interval_seconds: int, limit: int) -> list[dict]:
+    """Repos whose newest sample is older than `interval_seconds` (never sampled first)."""
+    rows = conn.execute(
+        """
+        SELECT r.id, r.name
+        FROM repositories r
+        LEFT JOIN (
+            SELECT repo_id, MAX(sampled_at) AS last_at FROM star_samples GROUP BY repo_id
+        ) s ON s.repo_id = r.id
+        WHERE s.last_at IS NULL
+           OR s.last_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
+        ORDER BY s.last_at IS NOT NULL, s.last_at
+        LIMIT ?
+        """,
+        (f"-{int(interval_seconds)} seconds", int(limit)),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def add_event(conn, repo_id, type: str, message: str, payload: dict | None = None) -> int:

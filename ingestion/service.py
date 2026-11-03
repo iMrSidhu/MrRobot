@@ -39,6 +39,9 @@ async def run_once(*, client=None, db_path=None) -> int:
         added = 0
         for c in candidates:
             if db.add_repo_if_new(conn, c.id, c.name, c.url, c.stars) is None:
+                # Known repo: the search result still carries a fresh star count,
+                # so keep a sample for the growth chart (one row per pass).
+                db.record_star_sample(conn, c.id, c.stars)
                 continue  # known repo, skip re-queueing (Step 2.2)
             db.add_event(conn, c.id, "DISCOVERED", f"{c.name} ({c.stars} stars)", {"url": c.url, "stars": c.stars})
             added += 1

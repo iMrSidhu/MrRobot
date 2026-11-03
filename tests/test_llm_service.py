@@ -219,3 +219,16 @@ def test_main_once_flag(monkeypatch):
     monkeypatch.setattr(llm_main.service, "run_once", fake_run_once)
     assert llm_main.main(["--once"]) == 0
     assert calls == ["once"]
+
+
+# --- budgeted runs ------------------------------------------------------------
+def test_run_once_limit_caps_claims_in_star_order(tmp_path, monkeypatch):
+    cache = tmp_path / "cache"
+    vault = tmp_path / "vault"
+    db_path = seed(tmp_path, cache, [(1, "a/big", 9000), (2, "a/mid", 500), (3, "a/small", 10)])
+    calls = wire(monkeypatch)
+    assert service.run_once(db_path=db_path, cache_dir=cache, vault_dir=vault, limit=2) == 2
+    assert calls["synth"] == ["a/big", "a/mid"]
+    conn = db.connect(db_path)
+    assert [r["name"] for r in db.list_repos(conn, "PROCESSED")] == ["a/small"]
+    conn.close()

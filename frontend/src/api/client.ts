@@ -77,3 +77,29 @@ export async function fetchReport(repoId: number, signal?: AbortSignal): Promise
   }
   return body.markdown;
 }
+
+export type StarSample = { t: string; v: number };
+
+export type StarHistory = {
+  state: 'available' | 'collecting';
+  current: number | null;
+  samples: StarSample[];
+};
+
+/** Star observations recorded by ingestion. Fewer than two means "collecting". */
+export async function fetchStars(repoId: number, signal?: AbortSignal): Promise<StarHistory> {
+  const body = await getJson(`/repos/${repoId}/stars`, signal);
+  if (!isRecord(body) || !Array.isArray(body.samples)) {
+    throw new CompatibilityError('Star history response has no samples array.');
+  }
+  const samples: StarSample[] = [];
+  for (const row of body.samples) {
+    if (!isRecord(row) || typeof row.sampled_at !== 'string' || typeof row.stars !== 'number') continue;
+    samples.push({ t: row.sampled_at, v: row.stars });
+  }
+  return {
+    state: samples.length >= 2 ? 'available' : 'collecting',
+    current: typeof body.stars === 'number' ? body.stars : null,
+    samples,
+  };
+}

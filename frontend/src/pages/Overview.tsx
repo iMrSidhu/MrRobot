@@ -51,28 +51,24 @@ export default function Overview({ live }: { live: LiveEvents }) {
   const repos = useResource(`repos:${nonce}`, fetchRepos);
 
   const count = (status: string) => (repos.status === 'ready' ? repos.data.filter((repo) => repo.status === status).length : 0);
+  const ready = repos.status === 'ready';
 
-  const rows: Array<[string, string]> = [
-    [
-      'REPOSITORIES TRACKED',
-      repos.status === 'ready' ? `${repos.data.length} (system-wide)` : repos.status === 'loading' ? 'LOADING…' : 'UNAVAILABLE',
-    ],
-    ['COMPLETED', repos.status === 'ready' ? String(count('DONE')) : 'UNAVAILABLE'],
-    ['FAILED AUDIT', repos.status === 'ready' ? String(count('FAILED_AUDIT')) : 'UNAVAILABLE'],
-    [
-      'LAST REPOSITORY UPDATE',
-      repos.status === 'ready' && repos.data.length > 0 ? (repos.data.at(-1)?.timestamp ?? 'UNKNOWN') : 'NONE',
-    ],
-    ['EVENTS OBSERVED', `${live.events.length} (this session)`],
+  const tiles: Array<{ label: string; value: string; tone: string }> = [
+    { label: 'REPOSITORIES', value: ready ? String(repos.data.length) : '—', tone: 'text-zinc-100' },
+    { label: 'COMPLETED', value: ready ? String(count('DONE')) : '—', tone: 'text-cy' },
+    { label: 'FAILED', value: ready ? String(count('FAILED_AUDIT')) : '—', tone: 'text-crim' },
+    { label: 'EVENTS', value: String(live.events.length), tone: 'text-neon' },
   ];
 
   const counts = new Map<string, number>();
-  if (repos.status === 'ready') {
+  if (ready) {
     for (const repo of repos.data) counts.set(repo.status, (counts.get(repo.status) ?? 0) + 1);
   }
-  const statusLine = STATUS_ORDER.filter((status) => counts.has(status))
-    .map((status) => `${status} ${counts.get(status)}`)
-    .join(' · ');
+  const segments = STATUS_ORDER.filter((status) => counts.has(status)).map((status) => ({
+    status,
+    count: counts.get(status) ?? 0,
+  }));
+  const total = ready ? repos.data.length : 0;
 
   const feed = live.events.slice(-FEED_LIMIT).reverse();
   const stale = live.status !== 'live';
@@ -96,28 +92,50 @@ export default function Overview({ live }: { live: LiveEvents }) {
           </button>
         }
       >
-        <dl className="divide-y divide-zinc-800 font-mono text-[11px]">
-          {rows.map(([label, value]) => (
-            <div key={label} className="flex items-start justify-between gap-4 py-2 first:pt-0 last:pb-0">
-              <dt className="shrink-0 tracking-[0.14em] text-zinc-400">{label}</dt>
-              <dd className="break-all text-right text-zinc-300">{value}</dd>
+        <div className="grid grid-cols-2 gap-2">
+          {tiles.map((tile) => (
+            <div key={tile.label} className="chamfer-sm border border-zinc-800 bg-void/60 px-3 py-2">
+              <div className="font-mono text-[9px] tracking-[0.16em] text-zinc-500">{tile.label}</div>
+              <div className={`font-mono text-2xl leading-tight ${tile.tone}`}>{tile.value}</div>
             </div>
           ))}
-        </dl>
+        </div>
 
-        {statusLine && (
-          <p className="mt-3 border-t border-zinc-800 pt-3 font-mono text-[10px] tracking-[0.12em] text-cy">{statusLine}</p>
+        {total > 0 && (
+          <div className="mt-3 space-y-1">
+            <div className="chamfer-xs flex h-2.5 overflow-hidden border border-zinc-800" role="img" aria-label={segments.map((s) => `${s.status} ${s.count}`).join(', ')}>
+              {segments.map((segment) => (
+                <div
+                  key={segment.status}
+                  title={`${segment.status} ${segment.count}`}
+                  className={
+                    segment.status === 'DONE'
+                      ? 'bg-cy'
+                      : segment.status === 'FAILED_AUDIT'
+                        ? 'bg-crim'
+                        : segment.status === 'QUEUED'
+                          ? 'bg-zinc-700'
+                          : 'bg-neon'
+                  }
+                  style={{ width: `${(segment.count / total) * 100}%` }}
+                />
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-x-3 font-mono text-[9px] text-zinc-500">
+              {segments.map((segment) => (
+                <span key={segment.status}>
+                  {segment.status} {segment.count}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
 
         {repos.status === 'error' && (
-          <p role="alert" className="mt-3 border-t border-crim/50 pt-3 font-mono text-[10px] text-crim">
+          <p role="alert" className="mt-3 border-t border-crim/50 pt-2 font-mono text-[10px] text-crim">
             {repos.error}
           </p>
         )}
-
-        <p className="mt-3 border-t border-zinc-800 pt-3 font-mono text-[10px] leading-relaxed text-zinc-500">
-          Counts are repository-scoped and system-wide. Values come from the read-only API; nothing here is simulated.
-        </p>
       </Panel>
 
       <Panel
@@ -177,8 +195,8 @@ export default function Overview({ live }: { live: LiveEvents }) {
           </ul>
         )}
 
-        <p className="mt-3 border-t border-zinc-800 pt-3 font-mono text-[10px] leading-relaxed text-zinc-500">
-          Newest first, last {FEED_LIMIT} of {live.events.length} observed. History replays on reconnect from the last event id.
+        <p className="mt-3 border-t border-zinc-800 pt-2 font-mono text-[9px] text-zinc-600">
+          Last {FEED_LIMIT} of {live.events.length} · replays from last id on reconnect
         </p>
       </Panel>
     </div>

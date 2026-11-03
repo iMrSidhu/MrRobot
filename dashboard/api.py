@@ -45,11 +45,14 @@ def _sse(row: dict) -> str:
 
 
 def create_app(db_path: Optional[str] = None,
-               vault_dir: Optional[str] = None) -> FastAPI:
+               vault_dir: Optional[str] = None,
+               cache_dir: Optional[str] = None) -> FastAPI:
     """App factory so tests (and other DB files) get their own read-only view.
-    ``vault_dir`` scopes the report endpoint's traversal guard (design 7)."""
+    ``vault_dir`` scopes the report endpoint's traversal guard (design 7);
+    ``cache_dir`` is where requested adoption artifacts and clones live."""
     path = str(db_path or settings.db_path)
     vault_root = Path(vault_dir or settings.vault_dir).resolve()
+    repo_cache = str(cache_dir or settings.repo_cache_dir)
     app = FastAPI(title="GitHub Capability & Security Sentinel", docs_url=None, redoc_url=None)
 
     @app.get("/health")
@@ -78,6 +81,59 @@ def create_app(db_path: Optional[str] = None,
             "synthesis": load_json(row.get("synthesis_path")),
             "security": load_json(row.get("security_json_path")),
         }
+
+    @app.get("/repos/{repo_id}/stars")
+    def repo_stars(repo_id: int) -> dict:
+        """Star observations for the growth chart (one sample per ingestion pass)."""
+        conn = db.connect(path)
+        try:
+            row = db.get_repo(conn, repo_id)
+            samples = db.list_star_samples(conn, repo_id) if row else []
+        finally:
+            conn.close()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"no repo {repo_id}")
+        return {
+            "repo_id": repo_id,
+            "stars": row.get("stars"),
+            "samples": samples,
+            "state": "available" if len(samples) >= 2 else "collecting",
+        }
+
+    @app.get("/repos/{repo_id}/adoption")
+    def repo_adoption(repo_id: int) -> dict:
+        """Requested adoption artifact, or an explicit 'not generated' state."""
+        conn = db.connect(path)
+        try:
+            row = db.get_repo(conn, repo_id)
+        finally:
+            conn.close()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"no repo {repo_id}")
+        artifact = row.get("adoption_json_path")
+        if not artifact:
+            return {"repo": row, "state": "not_generated", "adoption": None}
+        target = Path(artifact)
+        if not target.is_file():
+            return {"repo": row, "state": "missing", "adoption": None}
+        data = load_json(str(target))
+        return {"repo": row, "state": "available" if data else "invalid", "adoption": data}
+
+    @app.post("/repos/{repo_id}/adoption")
+    def repo_adoption_run(repo_id: int) -> dict:
+        """Generate the adoption report on request (deterministic, no LLM)."""
+        conn = db.connect(path)
+        try:
+            row = db.get_repo(conn, repo_id)
+        finally:
+            conn.close()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"no repo {repo_id}")
+        try:
+            report = run_adoption(row, cache_dir=repo_cache, db_path=path)
+        except CloneError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"repo": row, "state": "available", "adoption": report}
 
     @app.get("/repos/{repo_id}/report")
     def repo_report(repo_id: int) -> dict:

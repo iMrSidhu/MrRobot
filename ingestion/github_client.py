@@ -56,6 +56,27 @@ def _to_candidate(item: dict) -> RepoCandidate:
     )
 
 
+async def get_repo_stars(full_name: str, *, token: str | None = None, client: httpx.AsyncClient | None = None) -> int:
+    """Current stargazer count for one repo (core API, one request)."""
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    if token is None:
+        token = settings.github_token
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(base_url=BASE_URL, timeout=30)
+    try:
+        resp = await client.get(f"/repos/{full_name}", headers=headers)
+        _check_rate_limit(resp)
+        resp.raise_for_status()
+        return int(resp.json()["stargazers_count"])
+    finally:
+        if owns_client:
+            await client.aclose()
+
+
 async def search_repositories(
     keywords: Sequence[str],
     min_stars: int,
