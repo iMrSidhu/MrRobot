@@ -23,6 +23,10 @@ logger = get_logger("llm_engine")
 # One call at a time, process-wide (DESIGN.md §2 principle 3: VRAM serialization).
 _MODEL_LOCK = asyncio.Semaphore(1)
 
+# Hardware calibration (first real run): 4.6 tok/s decode once the 9B spills
+# past 6GB VRAM; uncapped generations blew the 600s timeout. Cap every call.
+MAX_TOKENS_PER_CALL = 1500
+
 FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 
@@ -53,7 +57,8 @@ def clean_json_text(raw: str) -> str:
 
 
 async def generate(prompt: str, *, model: str | None = None,
-                   client: httpx.AsyncClient | None = None) -> str:
+                   client: httpx.AsyncClient | None = None,
+                   max_tokens: int = MAX_TOKENS_PER_CALL) -> str:
     """One model call under the VRAM lock. Retries transient errors once.
 
     ``client`` is injected by tests; otherwise an ephemeral AsyncClient is
@@ -70,7 +75,8 @@ async def generate(prompt: str, *, model: str | None = None,
                 try:
                     resp = await client.post(
                         f"{settings.ollama_host.rstrip('/')}/api/generate",
-                        json={"model": model, "prompt": prompt, "stream": False},
+                        json={"model": model, "prompt": prompt, "stream": False,
+                              "options": {"num_predict": max_tokens}},
                         timeout=settings.llm_timeout_sec,
                     )
                     resp.raise_for_status()

@@ -25,6 +25,10 @@ SUMMARY_PROMPT = (
     "feature claim and file reference (PARTIAL DOSSIER pass, not the final "
     "answer):\n\n"
 )
+# Hardware calibration (first real run, 6GB GPU): ~4.6 tok/s decode — one call
+# per group of a 500k-char README would take hours. Compress at most this many
+# groups per slot; the remainder is truncated and disclosed to the model.
+MAX_DOSSIER_GROUPS = 4
 
 
 def _budget_chars() -> int:
@@ -61,13 +65,17 @@ async def _fit(items: list[str], label: str, alloc: int, *,
     if len(text) <= alloc:
         return text
     summaries = []
-    for group in _groups(items, alloc):
+    groups = _groups(items, alloc)
+    truncated = sum(len(g) for g in groups[MAX_DOSSIER_GROUPS:])
+    for group in groups[:MAX_DOSSIER_GROUPS]:
         part = await generate(SUMMARY_PROMPT + "\n\n".join(group),
                               model=model, client=client)
         summaries.append(part.strip())
-    logger.info("slot %s compressed: %d -> %d chars via %d dossier passes",
-                label, len(text), sum(len(s) for s in summaries), len(summaries))
+    logger.info("slot %s compressed: %d -> %d chars via %d dossier passes (%d chars dropped)",
+                label, len(text), sum(len(s) for s in summaries), len(summaries), truncated)
     merged = "\n".join(summaries)
+    if truncated:
+        merged += f"\n(dossier covered only the first {alloc * MAX_DOSSIER_GROUPS} of {len(text)} chars)"
     # shortcut: dossiers assumed to compress below alloc; hard-cut if not,
     # revisit only if models ever return longer summaries than input.
     return merged[:alloc]

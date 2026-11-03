@@ -157,3 +157,17 @@ def test_clean_json_text():
     assert clean_json_text('```json\n{"a": 1}\n```') == '{"a": 1}'
     assert clean_json_text('Sure! {"a": 1,} hope that helps') == '{"a": 1}'
     assert clean_json_text('{"a": [1,2,],}') == '{"a": [1,2]}'
+
+
+def test_generate_caps_output_tokens():
+    # Hardware calibration: slow decode must never run away — every call ships num_predict.
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return respond('ok', request)
+
+    asyncio.run(generate('hi', client=handler_client(handler), max_tokens=77))
+    asyncio.run(generate('hi', client=handler_client(handler)))
+    assert seen[0]['options']['num_predict'] == 77
+    assert seen[1]['options']['num_predict'] == llm.MAX_TOKENS_PER_CALL

@@ -77,3 +77,14 @@ def test_oversized_repo_summarizes_then_merges(monkeypatch):
     assert "BULLETS: kept facts" in final          # merged into the template
     assert big[:50] not in final                    # raw oversized text dropped
     assert models[-1] == "m" and len(prompts) == len(summaries) + 1
+
+
+def test_dossier_passes_are_capped(monkeypatch):
+    monkeypatch.setattr(synthesis, 'settings', SimpleNamespace(context_budget_tokens=300, synthesis_model='m'))
+    monkeypatch.setattr(synthesis, 'MAX_DOSSIER_GROUPS', 3)
+    repo = ProcessedRepo(repo_id=1, name='a/b', tree_text='',
+                         readme_chunks=['R' * 800] * 10, code_chunks=[])
+    result, prompts, models = run(repo)
+    assert isinstance(result, SynthesisResult)
+    assert len(prompts) == 4                        # 3 capped dossier passes + final merge
+    assert 'dossier covered only' in prompts[-1]    # the model is told the rest was dropped
