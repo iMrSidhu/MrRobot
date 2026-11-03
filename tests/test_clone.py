@@ -20,13 +20,18 @@ def run_git(*args, cwd):
     assert proc.returncode == 0, proc.stderr
 
 
-def make_source_repo(tmp_path, *, hook_marker: Path | None = None) -> Path:
+def make_source_repo(tmp_path, *, hook_marker: Path | None = None,
+                     extra: dict[str, str] | None = None) -> Path:
     src = tmp_path / "source"
     src.mkdir()
     run_git("init", cwd=src)
     (src / "README.md").write_text("# rover\n")
     (src / "main.py").write_text("print('hi')\n")
-    run_git("add", "README.md", "main.py", cwd=src)
+    for rel, text in (extra or {}).items():
+        target = src / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+    run_git("add", ".", cwd=src)
     run_git("commit", "-m", "init", cwd=src)
     if hook_marker is not None:
         hook = src / ".git" / "hooks" / "post-checkout"

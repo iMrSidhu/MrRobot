@@ -38,7 +38,7 @@ def _cache_path(name: str, suffix: str, cache_dir: Path | str | None) -> Path:
     return root / (sanitize_dir_name(name) + suffix)
 
 
-async def _analyze_one(conn, repo: dict, cache_dir, vault_dir) -> bool:
+async def _analyze_one(conn, repo: dict, cache_dir, vault_dir, client=None) -> bool:
     """Analyze one claimed repo end to end; returns True on success. Never raises."""
     repo_id, name, url = repo["id"], repo["name"], repo["url"]
     dest = None
@@ -47,7 +47,7 @@ async def _analyze_one(conn, repo: dict, cache_dir, vault_dir) -> bool:
         processed = ProcessedRepo.model_validate_json(
             _cache_path(name, PROCESSED_SUFFIX, cache_dir).read_text(encoding="utf-8"))
 
-        synthesis = await run_synthesis(processed)
+        synthesis = await run_synthesis(processed, client=client)
         synth_out = _cache_path(name, SYNTHESIS_SUFFIX, cache_dir)
         synth_out.parent.mkdir(parents=True, exist_ok=True)
         synth_out.write_text(synthesis.model_dump_json(), encoding="utf-8")
@@ -55,7 +55,7 @@ async def _analyze_one(conn, repo: dict, cache_dir, vault_dir) -> bool:
                      {"capability_tags": synthesis.capability_tags})
 
         dest = clone_repo(url, name, dest_root=cache_dir)
-        security = await run_security(processed, dest)
+        security = await run_security(processed, dest, client=client)
         sec_out = _cache_path(name, SECURITY_SUFFIX, cache_dir)
         sec_out.write_text(security.model_dump_json(), encoding="utf-8")
         db.add_event(conn, repo_id, "SECURITY_DONE", f"{name}: model B finished",
@@ -84,8 +84,11 @@ async def _analyze_one(conn, repo: dict, cache_dir, vault_dir) -> bool:
 
 def run_once(db_path: Path | str | None = None,
              cache_dir: Path | str | None = None,
-             vault_dir: Path | str | None = None) -> int:
-    """Drain everything currently PROCESSED; returns the number analyzed OK."""
+             vault_dir: Path | str | None = None,
+             client=None) -> int:
+    """Drain everything currently PROCESSED; returns the number analyzed OK.
+    `client` is injected into the LLM calls (tests run the whole pipeline
+    against a fake Ollama transport)."""
     conn = db.connect(Path(db_path or settings.db_path))
     db.init_db(conn)
     analyzed = 0
@@ -96,7 +99,7 @@ def run_once(db_path: Path | str | None = None,
             repo = db.claim_next(conn, "PROCESSED", "ANALYZING")
             if repo is None:
                 break
-            analyzed += await _analyze_one(conn, repo, cache_dir, vault_dir)
+            analyzed += await _analyze_one(conn, repo, cache_dir, vault_dir, client)
 
     asyncio.run(_drain())
     conn.close()
@@ -105,8 +108,9 @@ def run_once(db_path: Path | str | None = None,
 
 def run_forever(db_path: Path | str | None = None,
                 cache_dir: Path | str | None = None,
-                vault_dir: Path | str | None = None) -> None:
+                vault_dir: Path | str | None = None,
+                client=None) -> None:
     """Worker loop: drain backlogs immediately, idle-poll otherwise."""
     while True:
-        if run_once(db_path, cache_dir, vault_dir) == 0:
+        if run_once(db_path, cache_dir, vault_dir, client) == 0:
             time.sleep(settings.poll_interval_sec)

@@ -20,6 +20,6 @@ Prompt file per step lives at `prompts/<step>-<slug>.md` (created when the step 
 | 14 | Report generator | §5 Phase 5 (5.1), §3 (4) | done | restore/14 |
 | 15 | FastAPI + SSE | §5 Phase 5 (5.2), §3 (5) | done | restore/15 |
 | 16 | Streamlit dashboard | §5 Phase 5 (5.3) | done | restore/16 |
-| 17 | Runner & end-to-end | §2, §3 (full flow) | todo | — |
+| 17 | Runner & end-to-end | §2, §3 (full flow) | done | restore/17 |
 
 Status values: `todo` → `in-progress` → `done` (with Tag filled in, e.g. `restore/05`).
