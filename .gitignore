@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# virtual envs
+.venv/
+venv/
+
+# secrets / env
+.env
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# cloned target repos (read-only inputs, never commit)
+repo_cache/
+
+# generated reports
+vault/
